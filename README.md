@@ -17,6 +17,6 @@ Jogo de copas com segurança
 
 [] Protest against cheating;
 
-[] Possibility of cheating;
+[x] Possibility of cheating; (SÓ UMA MANEIRA)
 
 [] Game accounting agreements (using the Citizen Card) and storage of accounting receipts;
