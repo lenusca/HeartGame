@@ -1,7 +1,7 @@
 from Card import *
 import random
 # Full deck of cards
-class Deck():
+class Deck:
     # baralho
     deck = []
 

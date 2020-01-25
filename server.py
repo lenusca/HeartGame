@@ -21,7 +21,8 @@ class Server:
 		self.tmp_data = []
 		self.new_msgs = []
 		self.givingDeckTo = 0
-
+		self.keys = []
+		self.typee = ""
 
 	def start(self):
 		self.serversocket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
@@ -55,6 +56,13 @@ class Server:
 					"payload": deck}
 		player.socket.send(json.dumps(pack).encode())
 
+	def sendKeys(self,player,key):
+		if player.inTable == 0:
+			print("Player nº " + str(player.id) + " " + str(msg))
+		
+		pack = 	{	"header": "server_" + str(player.id),"TYPE": "KEYS",
+					"payload": key}
+		player.socket.send(json.dumps(pack).encode())
 
 	def readMsg(self, player):
 		if len(player.msg) > 0:
@@ -66,7 +74,6 @@ class Server:
 	def receiveMsgs(self):
 		ins, _, _ = select.select(self.inputs, self.inputs, [], 3)
 		if ins: 
-		#	print("oiiiiiiiiiiiiiiiiiiiiiiiiiii")
 			for in_conn in ins:
 				if in_conn is self.serversocket:
 					self.newClient(in_conn)
@@ -81,6 +88,8 @@ class Server:
 						# print(player.id)
 						if(player.id == int(pack["header"].split("_")[0])):
 							talking=player
+							if "TYPE" in pack:
+								self.typee = pack["TYPE"]
 					# for g in self.games:
 					# 	print("GAME	 socket:",g)
 					# 	for p in g.players:
@@ -89,7 +98,6 @@ class Server:
 					# print("talking with ",talking)
 
 					if "server" in pack["header"]:
-						print("aqui server")
 						msg = pack["payload"]
 						self.saveMsg(talking,msg)
 			
@@ -111,7 +119,6 @@ class Server:
 
 	def forwardMsg(self, pack):
 		client = int(pack["header"].split("_")[1])
-		print(pack["header"])
 		if client != 0:
 			client.socket.send(json.dumps(pack).encode())
 
@@ -157,7 +164,6 @@ class Server:
 
 
 	def saveMsg(self, player, MSG):
-		print("pus")
 		m = ""
 		for message in MSG:
 			m+=message
@@ -220,9 +226,8 @@ class Server:
 					for p in game.players_accept:
 						for pla in game.players_accept:
 							if pla.id != p.id:
-								op = op + " " + str(pla.name)
+								op = op + " " + pla.name
 						self.sendMsg(p,"ACCEPT TO PLAY with " + op,"REQUEST_PLAY")
-						op = ""
 						time.sleep(2)
 					self.flag2 = True
 				else:
@@ -251,8 +256,7 @@ class Server:
 			else:
 				for player in self.clients2:
 					if player.id == self.clients2[self.givingDeckTo].id:
-						# print("player msg:",player.msg)
-						if(len(player.msg) > 0 ):
+						if(len(player.msg) > 0):
 							# print("player msg:",player.msg[0])
 							# print("Tamanho:",len(ast.literal_eval(player.msg[0])))
 							if(len(ast.literal_eval(player.msg[0])) == 52):
@@ -268,9 +272,8 @@ class Server:
 		# 7ºestado, envia para o proximo jogador o baralho atualizado
 		elif game.state == "giveCards":
 			#random player 
-			self.givingDeckTo = random.choice(self.clients2)
-			print(self.givingDeckTo)
-			self.requestCard(self.givingDeckTo, str(game.deck))
+			#self.givingDeckTo = random.choice(self.clients2)
+			self.requestCard(self.clients2[self.givingDeckTo], str(game.deck))
 			game.state = "waitforCards"
 
 			
@@ -278,41 +281,57 @@ class Server:
 		elif game.state == "waitforCards":
 			for player in self.clients2:
 				if(len(player.msg) > 0 ):
-					if(player.id == self.givingDeckTo.id):
-						print("Tamanho:",len(ast.literal_eval(player.msg[0])))
+					#if(player.id == self.givingDeckTo.id):
+					if player.id == self.clients2[self.givingDeckTo].id:	
+						self.givingDeckTo = self.givingDeckTo + 1
+						if self.givingDeckTo > 3:
+							self.givingDeckTo = 0
 						game.deck = ast.literal_eval(player.msg[0])
 						player.msg.pop(0)
 						game.state = "giveCards"
 						if len(game.deck) == 0:
-							game.state = "decryptCards"
+							self.givingDeckTo = 3
+							game.state = "askKey"
 						break
-
-				else:
+				else:  
 					print("Waiting...")
 					time.sleep(0.5)
 					game.state = "waitforCards"
 			
 
-
-		elif game.state == "decryptCards":
-			print("cheguei")
-			pass
-			# Pedir todas as chaves (asking, ...), quando o cliente receber um asking já sabe que tem de enviar a chave
+		# 9ºestado, decifrar as cartas de cada um tem na mão
+		elif game.state == "askKey":
+			#Pedir todas as chaves (asking, ...), quando o cliente receber um asking já sabe que tem de enviar a chave
 			# enviar e esperar por recbeer
-			# for p in game.players:
-			# 	msg = readMsg(p)
-				# Quando já recebeu as chaves do cliente e já destri... deck
-				#if "OK" in msg:
-					#game.confirmation_players.remove(player)
-					#game.checkDecryptDeckEndConditions()
+			self.sendMsg(self.clients2[self.givingDeckTo], "I need your keys", "REQUEST_KEY")
+			game.state = "getKey"
 
-		# elif table.state == "deckCommitRequest":
+		# 10ºestado, receber key
+		elif game.state == "getKey":
+			for player in self.clients2:
+				if(len(player.msg) > 0 ):
+					if player.id == self.givingDeckTo + 1:
+						self.keys.append(player.msg[0])
+						player.msg.pop(0)
+						self.givingDeckTo = self.givingDeckTo - 1
+						game.state = "askKey"
+						break
+				else:
+					print("Waiting...")
+					time.sleep(0.5)
+
+			if len(self.keys) == 4:
+				game.state = "sendKey" 
 		# 	for player in table.players:
 		# 		sendMsg(player, "Deck Commit")
 		# 	table.confirmation_players = table.players.copy()
 		# 	table.state = "deckCommit"
 
-		# elif table.state == "deckCommit":
+		elif game.state == "sendKey":
+			print(self.keys)
+			for player in self.clients2:
+				self.sendMsg(player, str(self.keys), "KEYS")
+			game.state = "START"
 		# 	for player in table.confirmation_players:
 		# 		msg = readMsg(player)
 		# 		if len(msg) > 0:
@@ -320,7 +339,8 @@ class Server:
 		# 			table.confirmation_players.remove(player)
 		# 			table.checkHandCardsEndConditions()
 
-		# elif table.state == "startGameReq":
+		elif game.state == "START":
+			pass
 		# 	for player in table.players:
 		# 		sendMsg(player,"Let's start the game. Player with the lower ID starts.")
 		# 		player.playedCards = []
@@ -374,8 +394,6 @@ s = Server()
 s.start()
 while True:
 	s.receiveMsgs()
-	
-
 	## MANAGE NEW PLAYERS ##
 	if len(s.clients) >= 4:
 		s.newGame()
