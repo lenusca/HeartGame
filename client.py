@@ -149,11 +149,19 @@ class Client:
 
 				return self.id
 			# CC, não sei o que é para fazer a seguir	
-			elif op == 2:
-				self.cc = CC()
+			elif op == "2":
+				self.cc = CitizenCard()
 				self.name = self.cc.fullnames[0]
 				self.sendPlainMsg(self.name)
-				return
+				# Wait for answer
+				self.getPlainMsg()
+				data = self.readMsg()
+				try:
+					self.id = int(data.split(":")[1])
+				except:
+					self.id = -1
+
+				return self.id
 	
 	# Criar chave secreta
 	def generate_key(self, min, max):
@@ -166,7 +174,6 @@ class Client:
 		#Cifrar cada carta do baralho
 		self.key = self.generate_key(16, 16)
 		cipher = Security()
-		print(type(self.key))
 		cipher.generate_secret_key(base64.b64encode(self.key))
 		for c in deck:
 			deck_cipher.append(cipher.encrypt(c))		
@@ -205,7 +212,7 @@ class Client:
 			decipher_card = decipher.decrypt(decipher_card)
 			decipher_deck.append(decipher_card)
 		self.hand = decipher_deck
-		print(self.hand)
+		print(colored("My Cards: " + str(self.hand), "blue"))
 
 c = Client()
 serversocket = c.connect()
@@ -222,6 +229,7 @@ while id > 0:
 
 	if type(msg) is not int:
 		if c.typee == "REQUEST_GAME":
+			print(colored("\n" + c.name, "blue"))
 			print("Do you accept to play the game ")
 			op = input("Y->Yes || N->No          \n")
 			if(str(op) == "Y" or str(op) == "y"):
@@ -230,8 +238,8 @@ while id > 0:
 			else:
 				c.sendMsg("NO")
 		elif c.typee == "REQUEST_PLAY":
+			print(colored(msg, "blue"))
 			print("Do you accept to play to this oponnents: ")
-		
 			op = input("Y->Yes || N->No          \n")
 			if(str(op) == "Y" or str(op) == "y"):
 				message = "I " + c.name + " with ID " + str(id) + " accept to play against this player."
@@ -241,11 +249,13 @@ while id > 0:
 
 		# recebe, baralha e cifra o baralho, e envia o baralho para o servidor
 		elif c.typee == "DECK":
+			print(colored("= SHUFFLE =", "blue"))
 			deck = c.shuffleDeck(msg)
 			c.sendDeck(str(deck))
 		
 		# recebe e tira uma carta, e depois envia para o servidor
 		elif c.typee == "CARD":
+			print(colored("= GET ONE CARD = ", "blue"))
 			if(len(c.hand)<13):
 				deck = c.getCard(msg)
 				c.sendDeck(str(deck))
@@ -254,7 +264,6 @@ while id > 0:
 		
 		# recebe mensagem do servidor a pedir para enviar a key e envia
 		elif c.typee == "REQUEST_KEY":
-			print(c.key)
 			c.sendKey(base64.b64encode(c.key).decode('utf-8'))
 		
 		# receber as chaves

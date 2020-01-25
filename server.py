@@ -224,11 +224,12 @@ class Server:
 						print("Nomes que aceitaram: ",i.name)
 					op = ""
 					for p in game.players_accept:
+						op = ""
 						for pla in game.players_accept:
 							if pla.id != p.id:
-								op = op + " " + pla.name
-						self.sendMsg(p,"ACCEPT TO PLAY with " + op,"REQUEST_PLAY")
-						time.sleep(2)
+								op = op + "\n                 " + pla.name
+						self.sendMsg(p,"List of the players: " + op,"REQUEST_PLAY")
+						time.sleep(0.5)
 					self.flag2 = True
 				else:
 					for player in game.players_accept:
@@ -257,14 +258,11 @@ class Server:
 				for player in self.clients2:
 					if player.id == self.clients2[self.givingDeckTo].id:
 						if(len(player.msg) > 0):
-							# print("player msg:",player.msg[0])
-							# print("Tamanho:",len(ast.literal_eval(player.msg[0])))
 							if(len(ast.literal_eval(player.msg[0])) == 52):
 								game.deck = ast.literal_eval(player.msg[0])
 								self.givingDeckTo +=1
 								game.state = "giveDeck"
 								player.msg.pop(0)
-								# print("estouuu" )
 							else:
 								print("Waiting...")
 								game.state = "waitDeck"
@@ -328,7 +326,6 @@ class Server:
 		# 	table.state = "deckCommit"
 
 		elif game.state == "sendKey":
-			print(self.keys)
 			for player in self.clients2:
 				self.sendMsg(player, str(self.keys), "KEYS")
 			game.state = "START"

@@ -21,8 +21,7 @@ class Game:
     def set_players(self, player):
         if player not in self.players:
             self.players.append(player)
-
-    # 1ºestado        
+      
     def checkStartConditions(self):
         if len(self.players) >= 4:
             #self.players_accept = self.players
