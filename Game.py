@@ -16,6 +16,9 @@ class Game:
         self.state = "inactive"
         self.players_accept = []
         self.players_accept_with = []
+        # TROCAR DEPOIS self.cardsPlayed = dict()
+        self.cardsPlayed = [None for i in range(4)]
+        self.points = [None for i in range(4)]
 
     # adicionar os jogadores ao jogo
     def set_players(self, player):
@@ -79,7 +82,7 @@ class Game:
                 self.guide_card = card
 
             # Se jogar copas, apartir dai já se pode jogar
-            if card.suit.name == 'HEART':
+            if 'HEART' in card:
                 self.heart_is_broken = True
         
             self.cards.append(card)

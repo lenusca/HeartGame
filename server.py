@@ -5,6 +5,7 @@ import time
 import ast
 import random
 
+numbers = {"TWO": 2, "THREE": 3, "FOUR": 4, "FIVE": 5, "SIX": 6, "SEVEN": 7, "EIGHT": 8, "NINE": 9, "TEN": 10, "JACK": 11, "QUEEN": 12, "KING": 13, "ACE": 14}
 class Server:
 	def __init__(self):
 		self.host = ""
@@ -23,6 +24,8 @@ class Server:
 		self.givingDeckTo = 0
 		self.keys = []
 		self.typee = ""
+		self.startingPlayer = 0
+		self.PlayToAssist = ""
 
 	def start(self):
 		self.serversocket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
@@ -182,14 +185,64 @@ class Server:
 		self.sendMsg(player, deck,"CARD")
 		time.sleep(2)
 
-	# JOGO
+	def cleanMsg(self):
+		for client in self.clients2:
+			client.msg.clear()
+	
+	def constructTablePoints(self):
+		msg = ""
+		for i in range(0, len(self.clients2)):
+			msg = msg + self.clients2[i].name + ":" + str(self.clients2[i].points) + "\n"
+		return msg
+
+	##########################JOGO##########################
 	def newGame(self):
 		self.games.append(Game())
 		for i in range(4):
 			player = self.clients.pop(0)
 			player.inTable = len(self.games)
 			self.games[len(self.games)-1].set_players(player)
+	
+	# Saber quem vai ficar com os pontos
+	def playerLose(self, deck_round):
+		high_value = 0
+		index = 0
+		print(deck_round)
+		for i in range(0,len(deck_round)):	
+			tmpcard_value = deck_round[i].split()[0]
+			tmpcard_naipe = deck_round[i].split()[1]
 
+			tmpcard_value = numbers[deck_round[i].split()[0]]
+			# TENHO DE VER A CENA DO NAIPE
+			if tmpcard_value > high_value:
+				high_value = tmpcard_value
+				index = i
+		return self.clients2[index]
+	
+	# Saber com quantos pontos ficou
+	def updatePoints(self, deck_round, game):
+		tmpcard_naipe = "" 
+		tmpcard_value = ""
+		player = self.playerLose(deck_round)
+		print("Player:", player.name)
+		self.sendMsg(player,"you won the hand","wonround")
+		self.startingPlayer = player.id-1
+		
+
+		for card in deck_round:
+			tmpcard_value = card.split()[0]
+			tmpcard_naipe = card.split()[1]
+			if "QUEEN" in tmpcard_value and "SPADES" in tmpcard_naipe:
+				player.points = player.points + 13
+			elif "HEART" in tmpcard_naipe:
+				player.points = player.points + 1
+		player.points = player.points
+
+		if player.points >= 15:
+			game.state = "EndGame"
+		
+
+	
 	def gameManage(self, game):
 		# 1ºestado
 		if game.state == "inactive":
@@ -248,7 +301,6 @@ class Server:
 				self.sendDeck(self.clients2[self.givingDeckTo], str(game.deck))
 			game.state = "waitDeck"
 			
-
 		# 6ºestado, receber o baralho cifrado e baralhado
 		elif game.state == "waitDeck":
 			if self.givingDeckTo == 4:
@@ -274,7 +326,6 @@ class Server:
 			self.requestCard(self.clients2[self.givingDeckTo], str(game.deck))
 			game.state = "waitforCards"
 
-			
 		# 8ºestado, recebe o baralho com menos cartas e envia para o proximo jogador	
 		elif game.state == "waitforCards":
 			for player in self.clients2:
@@ -296,7 +347,6 @@ class Server:
 					time.sleep(0.5)
 					game.state = "waitforCards"
 			
-
 		# 9ºestado, decifrar as cartas de cada um tem na mão
 		elif game.state == "askKey":
 			#Pedir todas as chaves (asking, ...), quando o cliente receber um asking já sabe que tem de enviar a chave
@@ -319,73 +369,124 @@ class Server:
 					time.sleep(0.5)
 
 			if len(self.keys) == 4:
+				self.givingDeckTo = 0
 				game.state = "sendKey" 
-		# 	for player in table.players:
-		# 		sendMsg(player, "Deck Commit")
-		# 	table.confirmation_players = table.players.copy()
-		# 	table.state = "deckCommit"
 
+		# 11ºestado, manda as keys na ordem que deve decifrar
 		elif game.state == "sendKey":
 			for player in self.clients2:
 				self.sendMsg(player, str(self.keys), "KEYS")
-			game.state = "START"
-		# 	for player in table.confirmation_players:
-		# 		msg = readMsg(player)
-		# 		if len(msg) > 0:
-		# 			player.deckCommitment = msg
-		# 			table.confirmation_players.remove(player)
-		# 			table.checkHandCardsEndConditions()
+			game.state = "waitConfDecript"
 
+		# 12ºestado espera que seja decifrado		
+		elif game.state == "waitConfDecript":
+			for player in self.clients2:
+				if(len(player.msg) > 0 ):
+						if 'OK' in player.msg:
+							player.msg.pop(0)
+							self.givingDeckTo = self.givingDeckTo + 1
+							game.state = "waitConfDecript"
+						break
+				else:
+					print("Waiting...")
+					time.sleep(0.5)
+			print("givindeckto:",self.givingDeckTo )
+			if self.givingDeckTo == 3:
+				game.state = "START"
+				self.givingDeckTo = 0
+			
+		#13ºestado aqui vamos perguntar quem tem o 2 paus para iniciar o jogo com 
+		# essa carta
 		elif game.state == "START":
-			pass
+			for player in self.clients2:
+				self.sendMsg(player, "Do you have two of clubs", "Askingfor2clubs")
+			game.state = "waitforstartplayer"
+		
+		# aqui vamos epera pelo 2 paus e depois começar o jogo enviando para o 
+		# PLAY
+		elif game.state == "waitforstartplayer":
+			for player in self.clients2:
+				if(len(player.msg) > 0 ):
+						if "TWO CLUBS" in player.msg:
+							self.cleanMsg()
+							game.cardsPlayed[player.id-1] = ("TWO CLUBS")
+							self.startingPlayer = player.id - 1
+							if(self.startingPlayer == 3):
+								self.startingPlayer = 0
+							else:
+								self.startingPlayer = self.startingPlayer + 1
+
+							self.PlayToAssist = "TWO CLUBS"
+							for player in self.clients2:
+								self.sendMsg(player, str(game.cardsPlayed), "RecivePlay")
+							time.sleep(1)
+							self.sendMsg(self.clients2[self.startingPlayer],self.PlayToAssist,"PLAY")
+							game.state = "waitForPlay"
+						break
+				else:
+					print("Waiting...")
+					time.sleep(0.5)
+
+
+		elif game.state == "PLAY":
+				print("Eu Jogo: ",self.clients2[self.startingPlayer].name)
+				for player in self.clients2:
+					self.sendMsg(player, str(game.cardsPlayed), "RecivePlay")
+				time.sleep(1)
+				print("Starting player",self.startingPlayer)
+				self.sendMsg(self.clients2[self.startingPlayer],self.PlayToAssist,"PLAY")
+				game.state = "waitForPlay"
+				
+		
+		elif game.state == "waitForPlay":
+			for player in self.clients2:
+				if(len(player.msg) > 0 ):
+						if player.id == self.clients2[self.startingPlayer].id:
+							game.cardsPlayed[player.id-1]=player.msg[0]
+							#proximo jogador
+							if(self.startingPlayer == 3):
+								self.startingPlayer = 0
+							else:
+								self.startingPlayer = self.startingPlayer + 1
+							game.state = "PLAY"
+							if(game.cardsPlayed.count(None) == 3):
+								for play in game.cardsPlayed:
+									if(play != None):
+										self.PlayToAssist = play
+							player.msg.pop(0)
+							if len(game.cardsPlayed) == 4 and None not in game.cardsPlayed:
+								for player in self.clients2:
+									self.sendMsg(player, str(game.cardsPlayed), "RecivePlay")
+								game.state = "verifyWhoWin"
+						break
+				else:
+					print("Waiting...")
+					time.sleep(0.5)
+		#verifica quem  ganhou a jogada e recomeça o jogo 
+		elif game.state == "verifyWhoWin":
+			game.state = "PLAY"
+			self.updatePoints(game.cardsPlayed, game) 
+			# verificar a maior carta, o vencedor e os pontos
+			tablePoints = self.constructTablePoints()
+			game.cardsPlayed = [None for i in range(4)]
+			self.PlayToAssist = "yourturn"
+			#enviar pontos 
+			for player in self.clients2:
+				self.sendMsg(player,tablePoints,"RoundPoints")
+		
+		elif game.state == "EndGame":
+			win_player = self.clients[0]
+			for player in self.clients2:
+				self.sendMsg(player,game.game_points)
+				if(player.points < win_player.points):
+					win_player = player
+			
+			print("Winnner: ",win_player.name) #mandar depois os resultadoss todos e a tabela de pontos
+			self.sendMsg(win_player,"YOU WON THE GAME","WON_GAME")
 		# 	for player in table.players:
 		# 		sendMsg(player,"Let's start the game. Player with the lower ID starts.")
 		# 		player.playedCards = []
 		# 		table.state = "startGame"
-
-		# elif table.state == "startGame":
-		# 	for player in table.confirmation_players:
-		# 		msg = readMsg(player)
-		# 		if "OK" in msg:
-		# 			table.confirmation_players.remove(player)
-		# 			table.checkStartGameConditions()
-
-		# elif table.state == "round":
-		# 	if table.round < 14: 
-		# 		ended = round(table)
-		# 		if ended:
-		# 			table.state = "endRound"
-		# 	else:
-		# 		table.state = "endGame"
-
-		# elif table.state == "endRound":
-		# 	for player in table.confirmation_players:
-		# 		msg = readMsg(player)
-		# 		if "OK" in msg:
-		# 			table.confirmation_players.remove(player)
-		# 	table.checkNewRoundStartConditions()
-		
-		# elif table.state == "endGame":
-		# 	table.gameScore()
-		# 	for player in table.players:
-		# 		sendMsg(player, "End game: 1."+str(table.players_score[0].name)+" "+str(table.points_score[0])+ "pts 2."+str(table.players_score[1].name)+" "+str(table.points_score[1])+ "pts 3."+str(table.players_score[2].name)+" "+str(table.points_score[2])+ "pts 4."+str(table.players_score[3].name)+" "+str(table.points_score[3])+ "pts")
-		# 	table.state = "endGameConfirmation"
-		# 	table.confirmation_players = table.players.copy()
-		# 	mode = "plain"		
-		# elif table.state == "endGameConfirmation":
-		# 	for player in table.confirmation_players:
-		# 		msg = readMsg(player)
-		# 		if player.CC and len(msg) > 0:
-		# 			CC.verifySign(msg,"OK",sec.getPubKey(player.id))
-		# 			table.confirmation_players.remove(player)
-		# 		elif "OK" in msg:
-		# 			table.confirmation_players.remove(player)
-
-		# 	if len(table.confirmation_players) == 0:
-		# 		mode = ""
-		# 		table.state = "init"
-		# 		table.confirmation_players = table.players.copy()
-	
 
 s = Server()
 s.start()

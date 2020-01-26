@@ -39,7 +39,6 @@ class Security:
         cipher = Cipher(algorithm(self.key), mode(iv), backend=default_backend())
         decryptor = cipher.decryptor()
         unpadder = cryptography.hazmat.primitives.padding.PKCS7(algorithm.block_size).unpadder()
-        print(unpadder)
         originalText = (unpadder.update(decryptor.update(text)+decryptor.finalize()) + unpadder.finalize())
         # string 
         try:
