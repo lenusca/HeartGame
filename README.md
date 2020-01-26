@@ -11,7 +11,7 @@ Jogo de copas com segurança
 
 [] Agreement to join a table (using the Citizen Card);
 
-[] Deck secure distribution protocol;
+[x] Deck secure distribution protocol;
 
 [] Validation of the cards played during a game by each player;
 
