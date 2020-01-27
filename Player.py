@@ -6,6 +6,7 @@ class Player:
     
     def __init__(self, id, port):
         self.deck = []
+        self.CC = False
         self.id = id
         self.points = 0 #inicio do jogo
         self.inTable = 0 #não está na mesa

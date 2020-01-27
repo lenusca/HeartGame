@@ -1,8 +1,10 @@
 import socket, select, json
 from Player import *
 from Game import *
+from security.cc import *
 import time
 import ast
+import base64 
 import random
 
 numbers = {"TWO": 2, "THREE": 3, "FOUR": 4, "FIVE": 5, "SIX": 6, "SEVEN": 7, "EIGHT": 8, "NINE": 9, "TEN": 10, "JACK": 11, "QUEEN": 12, "KING": 13, "ACE": 14}
@@ -26,6 +28,7 @@ class Server:
 		self.typee = ""
 		self.startingPlayer = 0
 		self.PlayToAssist = ""
+		self.count = 0
 
 	def start(self):
 		self.serversocket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
@@ -33,9 +36,9 @@ class Server:
 		self.serversocket.bind((self.host, self.port))
 		self.serversocket.listen(5)
 		self.inputs.append(self.serversocket)
-
+	
 	# Troca de mensagens
-	def sendMsg(self,player,msg,typee):
+	def sendMsg(self, player, msg, typee):
 		#Verifica se o jogador já está na mesa
 		if player.inTable == 0:
 			print("Player nº " + str(player.id) + " " + str(msg))
@@ -93,12 +96,6 @@ class Server:
 							talking=player
 							if "TYPE" in pack:
 								self.typee = pack["TYPE"]
-					# for g in self.games:
-					# 	print("GAME	 socket:",g)
-					# 	for p in g.players:
-					# 		if p.socket is socket:
-					# 			talking = p
-					# print("talking with ",talking)
 
 					if "server" in pack["header"]:
 						msg = pack["payload"]
@@ -151,33 +148,47 @@ class Server:
 		self.inputs.append(clientsocket)
 		data = clientsocket.recv(self.BUF_SIZE).decode()
 		pack = json.loads(data)
-		
 		if self.ids:
-			player = self.addPlayer(clientsocket)
-			# Send the welcome message and inform the id
-			self.sendPlainMsg(player,"Welcome! You're nº: " + str(player.id))
+			# AUTENTICAÇÃO COM CC
+			if "TYPE" in pack:
+				if pack["TYPE"] == "CC":
+					if CitizenCard().verifyChainOfTrust(base64.b64decode(pack["CERT"].encode('utf-8'))) or CitizenCard().verifySign(base64.b64decode(pack["CERT"].encode('utf-8')), pack["payload"], base64.b64decode(pack["SIGNED"].encode('utf-8'))):
+						print("Chain of trust verified")
+						player = self.addPlayer(clientsocket)
+						player.CC = True
+						self.sendPlainMsg(player,"Welcome! You're nº: " + str(player.id))
+						msg = pack["payload"] 		
+						player.name = msg
+						print(player.CC)
+						print("ID:" + str(player.id) + " Name: " + player.name + " joined the game")
+					
+					
+			else:
+				player = self.addPlayer(clientsocket)
+				# Send the welcome message and inform the id
+				self.sendPlainMsg(player,"Welcome! You're nº: " + str(player.id))
+				msg = pack["payload"] 		
+				player.name = msg
+				print(player.CC)
+				print("ID:" + str(player.id) + " Name: " + player.name + " joined the game")
 		else:
 			print("Name: " + data + " tried to join but the table is full")
 			# Send the welcome message and inform the id
 			sendPlainMsg(player,"Sorry! The table is full. Come back later")
 
-		msg = pack["payload"]
-		player.name = msg
-		print("ID:" + str(player.id) + " Name: " + player.name + " joined the game")
-
+		
 
 	def saveMsg(self, player, MSG):
 		m = ""
 		for message in MSG:
 			m+=message
-		#print("mensagemmm: ",m)
+
 		for i in self.clients2:
 			if(i.id==player.id):
 				i.msg.append(m)
-		#print("player message: ", player.id)
 		
 
-	def requestGame(self, player, game):
+	def requestGame(self, player, PlayToAssistgame):
 		self.sendMsg(player, "ACCEPT THE GAME","REQUEST_GAME")
 		time.sleep(2)
 	
@@ -207,20 +218,21 @@ class Server:
 	def playerLose(self, deck_round):
 		high_value = 0
 		index = 0
-		print(deck_round)
+		startCard_naipe = self.PlayToAssist.split()[1]
 		for i in range(0,len(deck_round)):	
 			tmpcard_value = deck_round[i].split()[0]
 			tmpcard_naipe = deck_round[i].split()[1]
 
 			tmpcard_value = numbers[deck_round[i].split()[0]]
-			# TENHO DE VER A CENA DO NAIPE
-			if tmpcard_value > high_value:
+	
+			if tmpcard_value > high_value and tmpcard_naipe == startCard_naipe:
 				high_value = tmpcard_value
 				index = i
 		return self.clients2[index]
 	
 	# Saber com quantos pontos ficou
 	def updatePoints(self, deck_round, game):
+		self.count = self.count + 1
 		tmpcard_naipe = "" 
 		tmpcard_value = ""
 		player = self.playerLose(deck_round)
@@ -228,7 +240,7 @@ class Server:
 		self.sendMsg(player,"you won the hand","wonround")
 		self.startingPlayer = player.id-1
 		
-
+		# REGRAS
 		for card in deck_round:
 			tmpcard_value = card.split()[0]
 			tmpcard_naipe = card.split()[1]
@@ -238,9 +250,17 @@ class Server:
 				player.points = player.points + 1
 		player.points = player.points
 
-		if player.points >= 15:
+		# MUDAR ISTO PARA 100
+		if player.points >= 4:
 			game.state = "EndGame"
-		
+
+		# SE FICAREM SEM CARTAS MUDAR PARA O DISTRIBUIR BARALHO
+		if self.count == 13:
+			new_deck = Game().deck
+			game.deck = new_deck
+			print(game.deck)
+			self.keys = []
+			game.state = "giveDeck"		
 
 	
 	def gameManage(self, game):
@@ -335,6 +355,7 @@ class Server:
 						self.givingDeckTo = self.givingDeckTo + 1
 						if self.givingDeckTo > 3:
 							self.givingDeckTo = 0
+						
 						game.deck = ast.literal_eval(player.msg[0])
 						player.msg.pop(0)
 						game.state = "giveCards"
@@ -402,7 +423,7 @@ class Server:
 				self.sendMsg(player, "Do you have two of clubs", "Askingfor2clubs")
 			game.state = "waitforstartplayer"
 		
-		# aqui vamos epera pelo 2 paus e depois começar o jogo enviando para o 
+		# 14ºestado aqui vamos epera pelo 2 paus e depois começar o jogo enviando para o 
 		# PLAY
 		elif game.state == "waitforstartplayer":
 			for player in self.clients2:
@@ -427,13 +448,12 @@ class Server:
 					print("Waiting...")
 					time.sleep(0.5)
 
-
 		elif game.state == "PLAY":
-				print("Eu Jogo: ",self.clients2[self.startingPlayer].name)
+				#print("Eu Jogo: ",self.clients2[self.startingPlayer].name)
 				for player in self.clients2:
 					self.sendMsg(player, str(game.cardsPlayed), "RecivePlay")
 				time.sleep(1)
-				print("Starting player",self.startingPlayer)
+				#print("Starting player",self.startingPlayer)
 				self.sendMsg(self.clients2[self.startingPlayer],self.PlayToAssist,"PLAY")
 				game.state = "waitForPlay"
 				
@@ -442,7 +462,9 @@ class Server:
 			for player in self.clients2:
 				if(len(player.msg) > 0 ):
 						if player.id == self.clients2[self.startingPlayer].id:
+							print(type(player.msg[0]), player.msg[0])
 							game.cardsPlayed[player.id-1]=player.msg[0]
+						
 							#proximo jogador
 							if(self.startingPlayer == 3):
 								self.startingPlayer = 0
@@ -462,7 +484,8 @@ class Server:
 				else:
 					print("Waiting...")
 					time.sleep(0.5)
-		#verifica quem  ganhou a jogada e recomeça o jogo 
+
+		#verifica quem  ganhou as cartas e recomeça o jogo 
 		elif game.state == "verifyWhoWin":
 			game.state = "PLAY"
 			self.updatePoints(game.cardsPlayed, game) 
@@ -474,19 +497,16 @@ class Server:
 			for player in self.clients2:
 				self.sendMsg(player,tablePoints,"RoundPoints")
 		
+		# Quem tem menos pontos ganha
 		elif game.state == "EndGame":
-			win_player = self.clients[0]
+			win_player = self.clients2[0]
 			for player in self.clients2:
-				self.sendMsg(player,game.game_points)
+				#self.sendMsg(player,game.points)
 				if(player.points < win_player.points):
 					win_player = player
-			
 			print("Winnner: ",win_player.name) #mandar depois os resultadoss todos e a tabela de pontos
 			self.sendMsg(win_player,"YOU WON THE GAME","WON_GAME")
-		# 	for player in table.players:
-		# 		sendMsg(player,"Let's start the game. Player with the lower ID starts.")
-		# 		player.playedCards = []
-		# 		table.state = "startGame"
+			game.state = "inactive"
 
 s = Server()
 s.start()

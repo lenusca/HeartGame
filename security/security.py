@@ -9,6 +9,8 @@ from cryptography.hazmat.primitives import padding
 class Security:
     def __init__(self):
         self.key = None
+        self.privKey = None
+        self.pubKey = None
 
     def generate_secret_key(self, key):
         self.key = base64.b64decode(key)
@@ -28,8 +30,6 @@ class Security:
         else:
             return  base64.b64encode(iv+encryptor.update(padder.update(bytes(originalText,'utf-8')) + padder.finalize())+encryptor.finalize()).decode('utf-8')
 
-        #return base64.b64encode(iv+encryptor.update(padder.update( originalText if isinstance(originalText, bytes) else bytes(originalText,'utf-8')) + padder.finalize())+encryptor.finalize()).decode('utf-8')
-
     def decrypt(self, cipherText):
         algorithm = algorithms.AES
         mode = modes.OFB
@@ -47,3 +47,16 @@ class Security:
         except:
             originalText = base64.b64encode(originalText).decode('utf-8') 
         return originalText
+    
+    # RSA
+    # chave privada
+    def generatePrivKey(self, key):
+        self.privKey = rsa.generate_private(65537, 2048, default_backend())
+        encoding_privkey = self.priv_key.private_bytes(serialization.Encoding.PEM, erialization.PrivateFormat.PKCS8, serialization.BestAvailableEncryption(key if isinstance(key, bytes) else bytes(key, "utf-8")))
+        return base64.b64encode(encoding_privkey).decode('utf-8')
+        
+    # chave publica
+    def generatePubKey(self, key):
+        self.pubKey = self.privKey.public_key()
+        encoding_pubKey = self.pub_key.public_bytes(serialization.Encoding.PEM, serialization.PublicFormat.PKCS1)
+        return base64.b64encode(encoding_pubKey).decode('utf-8')

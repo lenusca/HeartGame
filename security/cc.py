@@ -28,6 +28,7 @@ import unicodedata
 class CitizenCard:
     def __init__(self):
         self._certificate = None
+       
         rootCerts, trustedCerts, crlList = self.load_certificates()
         #print("Certificates loaded !")
         #print("\n\n###########################################################\n\n")
@@ -210,7 +211,7 @@ class CitizenCard:
     def certGetSerial(self):
         return self.cert.serial_number
 
-    def getCerts(self, sessionIdx):
+    def getCerts(self, sessionIdx=0):
         AUTH_CERT_LABEL = "CITIZEN AUTHENTICATION CERTIFICATE"
 
         #print("Entering getCerts with session id :{:2d}".format(sessionIdx))
@@ -250,10 +251,21 @@ class CitizenCard:
             return None
         storecontext = None
         
-        certx509 = load_certificate(FILETYPE_PEM, cert)
+        #certx509 = load_certificate(FILETYPE_PEM, cert)
+         
+        #storecontext = X509StoreContext(self.ccStoreContext, certx509).verify_certificate()
 
-        storecontext = X509StoreContext(self.ccStoreContext, certx509).verify_certificate()
-   
+        try:
+            certx509 = load_certificate(FILETYPE_PEM, cert)
+            storecontext = X509StoreContext(self.ccStoreContext, certx509).verify_certificate()
+        except X509StoreContextError as strerror:
+            #print("Impossible to verify the certificate given for the store context: \n{:s}".format(strerror.__doc__))
+            return False
+        except Error as strerror:
+            #print(ERROR,"The certificate to be verified wasn't loaded: \n Error Information:{:s}".format(strerror.__doc__))
+            return False
+
+
         if storecontext is None:
             print("The smartcard  was sucessfully verified")
             return True
@@ -261,12 +273,11 @@ class CitizenCard:
             return False
 
 
-    def sign(self,sessionIdx, message):
+    def signData(self, message):
         label = "CITIZEN AUTHENTICATION KEY"
-
-        session = self.sessions[sessionIdx]
+        session = self.sessions[0]
         cipherMechnism = Mechanism(PyKCS11.CKM_SHA256_RSA_PKCS, "")
-        privateKey = self.sessions[sessionIdx].findObjects(template=([(PyKCS11.CKA_CLASS, PyKCS11.CKO_PRIVATE_KEY),(PyKCS11.CKA_LABEL, "CITIZEN AUTHENTICATION KEY")]))[0]
+        privateKey = self.sessions[0].findObjects(template=([(PyKCS11.CKA_CLASS, PyKCS11.CKO_PRIVATE_KEY),(PyKCS11.CKA_LABEL, "CITIZEN AUTHENTICATION KEY")]))[0]
 
         signedlist = session.sign(privateKey, message.encode(), cipherMechnism)
     
@@ -294,7 +305,7 @@ class CitizenCard:
             print("Invalid Signature %s".format(strerror.__doc__))
             return False
         else:
-            print("Verified")
+            print("Valid Signature")
             return True
 
     def login(self,sessionIdx):
@@ -317,39 +328,39 @@ class CitizenCard:
         session.closeSession()
 
 
-if __name__ == '__main__':
-    try:
-        pteid = CitizenCard()
-        fullnames = pteid.getcardsNames()
-        slot = -1
-        if len(pteid.sessions) > 0:
-            temp = ''.join('Slot{:3d}-> Fullname: {:10s}\n'.format(i, fullnames[i]) for i in range(0, len(fullnames)))
+# if __name__ == '__main__':
+#     try:
+#         pteid = CitizenCard()
+#         fullnames = pteid.getcardsNames()
+#         slot = -1
+#         if len(pteid.sessions) > 0:
+#             temp = ''.join('Slot{:3d}-> Fullname: {:10s}\n'.format(i, fullnames[i]) for i in range(0, len(fullnames)))
 
-            while slot < 0 or slot > len(pteid.sessions):
-                slot = input("Available Slots: \n{:40s} \n\nWhich Slot do you wish to use? ".format(temp))
-                if slot.isdigit():
-                    slot = int(slot)
-                else:
-                    slot = -1
-        for i in range(0, len(pteid.sessions)):
-            if slot != i:
-                pteid.sessions[i].closeSession()
-        print(pteid.getBI(slot))
+#             while slot < 0 or slot > len(pteid.sessions):
+#                 slot = input("Available Slots: \n{:40s} \n\nWhich Slot do you wish to use? ".format(temp))
+#                 if slot.isdigit():
+#                     slot = int(slot)
+#                 else:
+#                     slot = -1
+#         for i in range(0, len(pteid.sessions)):
+#             if slot != i:
+#                 pteid.sessions[i].closeSession()
+#         print(pteid.getBI(slot))
 
-        st1r = pteid.getCerts(slot)
- 
-        #print("\nIs this certificate valid: {:s}".format(str(pteid.verifyChainOfTrust(st1r))))
+#         st1r = pteid.getCerts(slot)
 
-        pteid.login(slot)
+#         #print("\nIs this certificate valid: {:s}".format(str(pteid.verifyChainOfTrust(st1r))))
 
-        datatobeSigned = "Random Randomly String"
-        signedData = pteid.sign(slot, datatobeSigned)
-        print("SIGNE###################w")
-        print(signedData)
-        print(datatobeSigned + "\n")
-        if (pteid.verifySign(pteid.getCerts(slot), datatobeSigned, signedData)):
-            print("Verified")
+#         pteid.login(slot)
 
-    except KeyboardInterrupt:
-        pteid.logout(slot)
-        pteid.sessions[slot].closeSession()   
+#         datatobeSigned = "Bruno !!"
+#         signedData = pteid.signData(datatobeSigned)
+#         print("SIGNE###################w")
+#         print(signedData)
+#         print(datatobeSigned + "\n")
+#         if (pteid.verifySign(pteid.getCerts(slot), datatobeSigned, signedData)):
+#             print("Verified")
+
+#     except KeyboardInterrupt:
+#         pteid.logout(slot)
+#         pteid.sessions[slot].closeSession()   
