@@ -155,6 +155,15 @@ class Client:
 			pack = {"header": str(id)+"_server", "CERT": certificate,"BitCommit":bitcommit , "SIGNED": self.sec.sign(bitcommit),
 					"payload": message}
 		self.serversocket.send(json.dumps(pack).encode())
+	
+	def sendMsgSigned2(self, message, certificate):
+		if self.cc != None:
+			pack = {"header": str(id)+"_server", "CERT": certificate, "SIGNED": base64.b64encode(self.cc.signData(message)).decode('utf-8'),
+					"payload": message}
+		else:
+			pack = {"header": str(id)+"_server", "CERT": certificate, "SIGNED": self.sec.sign(message),
+					"payload": message}
+		self.serversocket.send(json.dumps(pack).encode())
 
 	# Identificar-se ao server
 	def join(self):
@@ -431,12 +440,13 @@ while id > 0:
 		elif c.typee == "Askingfor2clubs":
 			if "TWO CLUBS" in c.hand:
 				c.hand.remove("TWO CLUBS")
-				# ASSINAR COM RSA
+				# ASSINAR COM ECC
 				if c.cc == None:
-					c.sendMsg("TWO CLUBS")
+					c.sendMsgSigned2("TWO CLUBS", base64.b64encode(c.pubKey).decode("utf-8"))
+				
 				# ASSINAR COM CC
 				else:
-					c.sendMsg("TWO CLUBS") 
+					c.sendMsgSigned2("TWO CLUBS", base64.b64encode(c.cc.getCerts()).decode("utf-8"))
 				print("EU TENHO ", c.name)
 		
 		# vê a jogada toda, aqui vai ser a verificação da batota
@@ -447,13 +457,13 @@ while id > 0:
 		elif c.typee =="PLAY":
 			print("pronto a jogar")
 			card = c.playCard(msg)
-			print(card)
-			# ASSINAR COM RSA
+			# ASSINADA COM ECC
 			if c.cc == None:
-				c.sendMsg(card)
-			# ASSINAR COM CC
+				c.sendMsgSigned2(card, base64.b64encode(c.pubKey).decode("utf-8"))
+			# ASSINAR COM CC (RSA)
 			else:
-				c.sendMsg(card) 
+				c.sendMsgSigned2(card, base64.b64encode(c.cc.getCerts()).decode("utf-8"))
+				
 			# PERGUNTAR AO DINIS
 			if c.cheat == False:
 				c.hand.remove(card)

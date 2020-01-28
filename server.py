@@ -124,7 +124,7 @@ class Server:
 							talking=player
 							if "TYPE" in pack:
 								self.typee = pack["TYPE"]
-							if "BitCommit" in pack:
+							if "SIGNED" in pack:
 								self.packs = pack
 					if "server" in pack["header"]:
 						msg = pack["payload"]
@@ -425,13 +425,12 @@ class Server:
 
 		# 10ºestado, receber key
 		elif game.state == "getKey":
-			print(self.packs)
 			for player in self.clients2:
-				if(len(player.msg) > 0 ):
+				if len(player.msg) > 0:
 					if player.id == self.givingDeckTo + 1:
 						if player.CC == True:
-							if(CitizenCard().verifySign(base64.b64decode(self.packs["CERT"].encode('utf-8')), self.packs["BitCommit"], base64.b64decode(self.packs["SIGNED"].encode('utf-8')))):
-								print("Bit commit foi aceite")
+							if CitizenCard().verifySign(base64.b64decode(self.packs["CERT"].encode('utf-8')), self.packs["BitCommit"], base64.b64decode(self.packs["SIGNED"].encode('utf-8'))):
+								print("Bit commit was accepted")
 								player.bitcom = ast.literal_eval(self.packs["BitCommit"])
 								self.keys.append(player.msg[0])
 								player.msg.pop(0)
@@ -439,12 +438,12 @@ class Server:
 								game.state = "askKey"
 								break
 							else:
-								print("Bit commit não foi aceite")
+								print("Bit commit was not accepted")
 						else:
 							#print("verify sign")
 							pubk = Security().getpubKey(base64.b64decode(self.packs["CERT"].encode("utf-8")))
-							if(Security().verifySign(self.packs["BitCommit"], self.packs["SIGNED"], pubk)):
-								print("Bit commit foi aceite")
+							if Security().verifySign(self.packs["BitCommit"], self.packs["SIGNED"], pubk):
+								print("Bit commit was accepted")
 								player.bitcom = ast.literal_eval(self.packs["BitCommit"])
 								self.keys.append(player.msg[0])
 								player.msg.pop(0)
@@ -452,7 +451,7 @@ class Server:
 								game.state = "askKey"
 								break
 							else:
-								print("Bit commit não foi aceite")
+								print("Bit commit was not accepted")
 				
 						# self.keys.append(player.msg[0])
 						# player.msg.pop(0)
@@ -502,21 +501,47 @@ class Server:
 			for player in self.clients2:
 				if(len(player.msg) > 0 ):
 						if "TWO CLUBS" in player.msg:
-							self.cleanMsg()
-							game.cardsPlayed[player.id-1] = ("TWO CLUBS")
-							self.startingPlayer = player.id - 1
-							if(self.startingPlayer == 3):
-								self.startingPlayer = 0
-							else:
-								self.startingPlayer = self.startingPlayer + 1
+							if player.CC == True:
+								if CitizenCard().verifySign(base64.b64decode(self.packs["CERT"].encode('utf-8')), self.packs["payload"], base64.b64decode(self.packs["SIGNED"].encode('utf-8'))):
+									print("Card was accept")
+									self.cleanMsg()
+									game.cardsPlayed[player.id-1] = ("TWO CLUBS")
+									self.startingPlayer = player.id - 1
+									if(self.startingPlayer == 3):
+										self.startingPlayer = 0
+									else:
+										self.startingPlayer = self.startingPlayer + 1
 
-							self.PlayToAssist = "TWO CLUBS"
-							for player in self.clients2:
-								self.sendMsg(player, str(game.cardsPlayed), "RecivePlay")
-							time.sleep(0.5)
-							self.sendMsg(self.clients2[self.startingPlayer],self.PlayToAssist,"PLAY")
-							game.state = "waitForPlay"
-						break
+									self.PlayToAssist = "TWO CLUBS"
+									for player in self.clients2:
+										self.sendMsg(player, str(game.cardsPlayed), "RecivePlay")
+									time.sleep(0.5)
+									self.sendMsg(self.clients2[self.startingPlayer],self.PlayToAssist,"PLAY")
+									game.state = "waitForPlay"
+									break
+								else:
+									print("Card was not accept")
+							else:
+								pubk = Security().getpubKey(base64.b64decode(self.packs["CERT"].encode("utf-8")))
+								if Security().verifySign(self.packs["payload"], self.packs["SIGNED"], pubk):
+									print("Card was accept#################################################")
+									self.cleanMsg()
+									game.cardsPlayed[player.id-1] = ("TWO CLUBS")
+									self.startingPlayer = player.id - 1
+									if(self.startingPlayer == 3):
+										self.startingPlayer = 0
+									else:
+										self.startingPlayer = self.startingPlayer + 1
+
+									self.PlayToAssist = "TWO CLUBS"
+									for player in self.clients2:
+										self.sendMsg(player, str(game.cardsPlayed), "RecivePlay")
+									time.sleep(0.5)
+									self.sendMsg(self.clients2[self.startingPlayer],self.PlayToAssist,"PLAY")
+									game.state = "waitForPlay"
+									break
+								else:
+									print("Card was not accept")
 				else:
 					print("Waiting...")
 					#time.sleep(0.5)
@@ -533,26 +558,54 @@ class Server:
 		
 		elif game.state == "waitForPlay":
 			for player in self.clients2:
-				if(len(player.msg) > 0 ):
-						if player.id == self.clients2[self.startingPlayer].id:
-							print(type(player.msg[0]), player.msg[0])
-							game.cardsPlayed[player.id-1]=player.msg[0]
-							#proximo jogador
-							if(self.startingPlayer == 3):
-								self.startingPlayer = 0
+				if len(player.msg) > 0:
+					if player.id == self.clients2[self.startingPlayer].id:
+						if player.CC == True:
+							if CitizenCard().verifySign(base64.b64decode(self.packs["CERT"].encode('utf-8')), self.packs["payload"], base64.b64decode(self.packs["SIGNED"].encode('utf-8'))):
+								#print(type(player.msg[0]), player.msg[0])
+								print("Card was accept")
+								game.cardsPlayed[player.id-1]=player.msg[0]
+								#proximo jogador
+								if(self.startingPlayer == 3):
+									self.startingPlayer = 0
+								else:
+									self.startingPlayer = self.startingPlayer + 1
+								game.state = "PLAY"
+								if(game.cardsPlayed.count(None) == 3):
+									for play in game.cardsPlayed:
+										if(play != None):
+											self.PlayToAssist = play
+								player.msg.pop(0)
+								if len(game.cardsPlayed) == 4 and None not in game.cardsPlayed:
+									for player in self.clients2:
+										self.sendMsg(player, str(game.cardsPlayed), "RecivePlay")
+									game.state = "verifyWhoWin"
+								break
 							else:
-								self.startingPlayer = self.startingPlayer + 1
-							game.state = "PLAY"
-							if(game.cardsPlayed.count(None) == 3):
-								for play in game.cardsPlayed:
-									if(play != None):
-										self.PlayToAssist = play
-							player.msg.pop(0)
-							if len(game.cardsPlayed) == 4 and None not in game.cardsPlayed:
-								for player in self.clients2:
-									self.sendMsg(player, str(game.cardsPlayed), "RecivePlay")
-								game.state = "verifyWhoWin"
-						break
+								print("Card was not accept")
+						else:
+							pubk = Security().getpubKey(base64.b64decode(self.packs["CERT"].encode("utf-8")))
+							if Security().verifySign(self.packs["payload"], self.packs["SIGNED"], pubk):
+								print("Card was accept")
+								game.cardsPlayed[player.id-1]=player.msg[0]
+								#proximo jogador
+								if(self.startingPlayer == 3):
+									self.startingPlayer = 0
+								else:
+									self.startingPlayer = self.startingPlayer + 1
+								game.state = "PLAY"
+								if(game.cardsPlayed.count(None) == 3):
+									for play in game.cardsPlayed:
+										if(play != None):
+											self.PlayToAssist = play
+								player.msg.pop(0)
+								if len(game.cardsPlayed) == 4 and None not in game.cardsPlayed:
+									for player in self.clients2:
+										self.sendMsg(player, str(game.cardsPlayed), "RecivePlay")
+									game.state = "verifyWhoWin"
+								break
+							else:
+								print("Card was not accept")
 				else:
 					print("Waiting...")
 					#time.sleep(0.5)
