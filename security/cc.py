@@ -251,19 +251,19 @@ class CitizenCard:
             return None
         storecontext = None
         
-        #certx509 = load_certificate(FILETYPE_PEM, cert)
+        certx509 = load_certificate(FILETYPE_PEM, cert)
          
-        #storecontext = X509StoreContext(self.ccStoreContext, certx509).verify_certificate()
+        storecontext = X509StoreContext(self.ccStoreContext, certx509).verify_certificate()
 
-        try:
-            certx509 = load_certificate(FILETYPE_PEM, cert)
-            storecontext = X509StoreContext(self.ccStoreContext, certx509).verify_certificate()
-        except X509StoreContextError as strerror:
-            #print("Impossible to verify the certificate given for the store context: \n{:s}".format(strerror.__doc__))
-            return False
-        except Error as strerror:
-            #print(ERROR,"The certificate to be verified wasn't loaded: \n Error Information:{:s}".format(strerror.__doc__))
-            return False
+        # try:
+        #     certx509 = load_certificate(FILETYPE_PEM, cert)
+        #     storecontext = X509StoreContext(self.ccStoreContext, certx509).verify_certificate()
+        # except X509StoreContextError as strerror:
+        #     #print("Impossible to verify the certificate given for the store context: \n{:s}".format(strerror.__doc__))
+        #     return False
+        # except Error as strerror:
+        #     #print(ERROR,"The certificate to be verified wasn't loaded: \n Error Information:{:s}".format(strerror.__doc__))
+        #     return False
 
 
         if storecontext is None:
@@ -326,41 +326,3 @@ class CitizenCard:
         session = self.sessions[slot]
         session.logout()
         session.closeSession()
-
-
-# if __name__ == '__main__':
-#     try:
-#         pteid = CitizenCard()
-#         fullnames = pteid.getcardsNames()
-#         slot = -1
-#         if len(pteid.sessions) > 0:
-#             temp = ''.join('Slot{:3d}-> Fullname: {:10s}\n'.format(i, fullnames[i]) for i in range(0, len(fullnames)))
-
-#             while slot < 0 or slot > len(pteid.sessions):
-#                 slot = input("Available Slots: \n{:40s} \n\nWhich Slot do you wish to use? ".format(temp))
-#                 if slot.isdigit():
-#                     slot = int(slot)
-#                 else:
-#                     slot = -1
-#         for i in range(0, len(pteid.sessions)):
-#             if slot != i:
-#                 pteid.sessions[i].closeSession()
-#         print(pteid.getBI(slot))
-
-#         st1r = pteid.getCerts(slot)
-
-#         #print("\nIs this certificate valid: {:s}".format(str(pteid.verifyChainOfTrust(st1r))))
-
-#         pteid.login(slot)
-
-#         datatobeSigned = "Bruno !!"
-#         signedData = pteid.signData(datatobeSigned)
-#         print("SIGNE###################w")
-#         print(signedData)
-#         print(datatobeSigned + "\n")
-#         if (pteid.verifySign(pteid.getCerts(slot), datatobeSigned, signedData)):
-#             print("Verified")
-
-#     except KeyboardInterrupt:
-#         pteid.logout(slot)
-#         pteid.sessions[slot].closeSession()   

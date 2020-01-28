@@ -25,10 +25,16 @@ class Client:
 		self.old_msgs = []
 		self.typee = "" 
 		self.hand = []
+		self.handCipher = []
+		self.commit = []
 		self.cc = None
+		self.sec = None
 		self.key = ""
 		self.keys = []
 		self.cheat = False
+		self.verifyCheat = False
+		self.allverify = ""
+		self.pubKey = "" 
 	
 
 	def connect(self):
@@ -88,6 +94,8 @@ class Client:
 		pack = json.loads(data)
 		if "TYPE" in pack:
 			self.typee = pack["TYPE"]
+			if(pack["TYPE"] == "REQUEST_PLAY"):
+				self.allverify = self.verifyClients(pack)
 		msg = pack["payload"]
 		if type(msg) is str:
 			arr = self.splitMsgs(msg)
@@ -125,19 +133,28 @@ class Client:
 							"payload": message}
 				self.serversocket.send(json.dumps(pack).encode())
 			else:
-				pack = {	"header": str(id)+"_"+receiver, "TYPE": "CC", "CERT": certificate, "SIGNED": base64.b64encode(self.cc.signData(message)).decode('utf-8'),
+				pack = {	"header": str(id)+"_"+receiver, "TYPE": "CC", "CERT": certificate, "SIGNED": self.cc.signData(message),
 							"payload": message}
 				self.serversocket.send(json.dumps(pack).encode())
 		
 		else:	
 			if receiver == "server":
-				pack = {	"header": '_'+str(id)+'_',
+				pack = {	"header": '_'+str(id)+'_', "CERT": certificate, "SIGNED": self.sec.sign(message),
 							"payload": message}
 				self.serversocket.send(json.dumps(pack).encode())
 			else:
-				pack = {	"header": str(id)+"_"+receiver,
+				pack = {	"header": str(id)+"_"+receiver, "CERT": certificate, "SIGNED": self.sec.sign(message),
 							"payload": message}
 				self.serversocket.send(json.dumps(pack).encode())
+	
+	def sendMsgSigned(self, message, bitcommit,certificate):
+		if self.cc != None:
+			pack = {"header": str(id)+"_server", "CERT": certificate,"BitCommit":bitcommit , "SIGNED": base64.b64encode(self.cc.signData(bitcommit)).decode('utf-8'),
+					"payload": message}
+		else:
+			pack = {"header": str(id)+"_server", "CERT": certificate,"BitCommit":bitcommit , "SIGNED": self.sec.sign(bitcommit),
+					"payload": message}
+		self.serversocket.send(json.dumps(pack).encode())
 
 	# Identificar-se ao server
 	def join(self):
@@ -150,7 +167,11 @@ class Client:
 			# Username
 			if op == "1":
 				self.name = input("Username: ")
-				self.sendPlainMsg(self.name)
+				self.sec = Security()
+				keys = self.sec.generateCertClient(self.name)
+				self.pubKey = keys["pubKey"]
+				# file.read(-1)
+				self.sendPlainMsg(self.name,base64.b64encode(keys["pubKey"]).decode("utf-8"))
 				# Wait for answer
 				self.getPlainMsg()
 				data = self.readMsg()
@@ -217,12 +238,12 @@ class Client:
 		hash1 = hashlib.sha256()
 		hash1.update(R1)
 		hash1.update(R2)
+		self.handCipher = self.hand
 		for c in self.hand:
 			hash1.update(bytes(c, 'utf-8'))
 		hexa = hash1.hexdigest()
-		print('The bit commitment of %s is %s'%(self.id, hexa))
-		# FALTA A PARTE DE ASSINAR, perguntar ao DINIS
-		return R1, R2, self.hand
+		#print('The bit commitment of %s is %s'%(self.id, hexa))
+		self.commit = [R1,R2,hexa] 
 
 	# Decifrar	
 	def decryptHand(self, key):
@@ -240,10 +261,44 @@ class Client:
 			decipher_deck.append(decipher_card)
 		self.hand = decipher_deck
 		print(colored("\033[1mMy Cards:\033[0m " + str(self.hand), "red"))
+	
+	def verifyClients(self,pack):
+		keys = ast.literal_eval(pack["KEYS"])
+		signData = ast.literal_eval(pack["signData"])
+		names = ast.literal_eval(pack["names"])
+		count = 0		
+		if(pack["CCpos"]=="None"):
+			for i in range(0,len(keys)):
+				if(keys[i]!="0"):
+					if(Security().verifySign(names[i],signData[i],Security().getpubKey(base64.b64decode(keys[i].encode("utf-8"))))): 
+						count = count + 1
+		else:
+			for i in range(0,len(keys)):
+				print(pack["CCpos"])
+				if(keys[i]!="0" and i != int(pack["CCpos"])-1):
+					if(Security().verifySign(names[i],signData[i],Security().getpubKey(base64.b64decode(keys[i].encode("utf-8"))))): 
+						count = count + 1
+				elif keys[i]!="0" and i == int(pack["CCpos"])-1:
+					if(CitizenCard().verifySign(base64.b64decode(keys[i].encode("utf-8")),names[i],base64.b64decode(signData[i].encode("utf-8")))):
+						count = count + 1
+			
+		if(count == 3):
+			return True
+		else:
+			return False
+
+
 
 	#######################JOGO#########################
 	def getValueNaipe(self, last_card):
 		return last_card.split()
+
+	def validationCard(self, deck):
+		for card in deck:
+			for c in self.hand:
+				if card == c:
+					print("Someone cheated")
+					self.verifyCheat = True
 
 	def playCard(self, last_card):
 		possible_card = []
@@ -262,37 +317,38 @@ class Client:
 		
 		# Perguntar que carta quer jogar
 		while 1:
-			print("Do you want to cheat? ")
-			op = input("Y->Yes || N->No          \n")
-
-			# eu tive uma ideiaaa !! na batota por exemplo se eu verificasse 
-			# que ele jogou dois de copas, eu ia gerr todas as cartas possiveis de copas
-			#  e ele depois podia escolher uma delas?? Mesmo que não tenha a carta
-			# TER CUIDADO COM O REMOVE LÀ EM BAIXO
-			if op == "Y" or op == "y":
-				self.cheat = True
-				# Mostrar ao jogador todas as cartas que são possiveis de ele jogar
-				for v in value:
-					cheat_card.append(v + last_card[1])
-
-				print(colored("\033[1mWHAT CARD DO YOU WANT TO PLAY ? \033[0m\n"+str(cheat_card), "red"))
+			print("Do you want to play or verified if someone cheated?")
+			op = input("[0]Play/[1]Cheat: ")
+			if op == "0":
 				while 1:
-					card = int(input("Card(select index):"))
-					if card <= len(cheat_card)-1:
-						return cheat_card[card]
-					else: 
-						print("CHOOSE AGAIN, index out of range")
-			
-			# o jogador tem de jogar o indice onde está a carta
-			if op == "N" or op == "n":
-				print(colored("\033[1mWHAT CARD DO YOU WANT TO PLAY ? \033[0m\n"+str(possible_card), "red"))
-				while 1:
-					card = int(input("Card(select index):"))
-					if card <= len(possible_card)-1:
-						return possible_card[card]
-					else: 
-						print("CHOOSE AGAIN, index out of range")
-	
+					print("Do you want to cheat? ")
+					op = input("Y->Yes || N->No          \n")
+
+					if op == "Y" or op == "y":
+						self.cheat = True
+						# Mostrar ao jogador todas as cartas que são possiveis de ele jogar
+						for v in value:
+							cheat_card.append(v + last_card[1])
+
+						print(colored("\033[1mWHAT CARD DO YOU WANT TO PLAY ? \033[0m\n"+str(cheat_card), "red"))
+						while 1:
+							card = int(input("Card(select index):"))
+							if card <= len(cheat_card)-1:
+								return cheat_card[card]
+							else: 
+								print("CHOOSE AGAIN, index out of range")
+					
+					# o jogador tem de jogar o indice onde está a carta
+					if op == "N" or op == "n":
+						print(colored("\033[1mWHAT CARD DO YOU WANT TO PLAY ? \033[0m\n"+str(possible_card), "red"))
+						while 1:
+							card = int(input("Card(select index):"))
+							if card <= len(possible_card)-1:
+								return possible_card[card]
+							else: 
+								print("CHOOSE AGAIN, index out of range")
+			if op == "1":
+				self.sendMsg("Verified Cheat")	
 c = Client()
 serversocket = c.connect()
 # Join the server
@@ -318,15 +374,19 @@ while id > 0:
 				c.sendMsg("NO")
 
 		elif c.typee == "REQUEST_PLAY":
-			print(colored("\033[1m"+msg+"\033[0m", "red"))
-			print("Do you accept to play to this oponnents: ")
-			op = input("Y->Yes || N->No          \n")
-			if(str(op) == "Y" or str(op) == "y"):
-				message = "I " + c.name + " with ID " + str(id) + " accept to play against this player."
-				c.sendMsg(message)
+			if(c.allverify):
+				print(colored("\033[1m TODOS OS PLAYERS FORAM VERIFICADOS \033[0m","green"))
+				print(colored("\033[1m"+msg+"\033[0m", "red"))
+				print("Do you accept to play to this oponnents: ")
+				op = input("Y->Yes || N->No          \n")
+				if(str(op) == "Y" or str(op) == "y"):
+					message = "I " + c.name + " with ID " + str(id) + " accept to play against this player."
+					c.sendMsg(message)
+				else:
+					c.sendMsg("NO")
 			else:
-				c.sendMsg("NO")
-				
+				print(colored("Erro, alguem não foi autenticado","red"))
+					
 
 		# recebe, baralha e cifra o baralho, e envia o baralho para o servidor
 		# envia tambem o bit commitment
@@ -347,19 +407,27 @@ while id > 0:
 		# recebe mensagem do servidor a pedir para enviar a key e envia
 		elif c.typee == "REQUEST_KEY":
 			print("MINHA CHAVE: ", c.key)
-			c.sendKey(base64.b64encode(c.key).decode('utf-8'))
+			c.commitment()
+			lista = [c.commit[0], c.commit[1]]
+			if c.cc != None:
+				c.sendMsgSigned(base64.b64encode(c.key).decode('utf-8'), str(lista), base64.b64encode(c.cc.getCerts()).decode("utf-8"))
+			else:
+				c.sendMsgSigned(base64.b64encode(c.key).decode('utf-8'), str(lista), base64.b64encode(c.pubKey).decode("utf-8"))
+			#c.sendKey(base64.b64encode(c.key).decode('utf-8'))
+			# Enviar o bit commitment, o r1 e C
+			
 		# receber as chaves
 		elif c.typee == "KEYS":
 			print(msg)
 			msg = ast.literal_eval(msg)
 			for i in msg:
 				c.keys.append(base64.b64decode(i.encode('utf-8')))
-			c.commitment()
 			c.decryptHand(c.keys)
 			print(colored("\033[1m= I DECRYPT MY HAND = \033[0m", "red"))
 			c.sendMsg("OK")
 			c.keys = []
-		# ASSINAR AQUI
+	
+	
 		elif c.typee == "Askingfor2clubs":
 			if "TWO CLUBS" in c.hand:
 				c.hand.remove("TWO CLUBS")
@@ -377,6 +445,7 @@ while id > 0:
 		
 		# ASSINAR AQUI
 		elif c.typee =="PLAY":
+			print("pronto a jogar")
 			card = c.playCard(msg)
 			print(card)
 			# ASSINAR COM RSA
@@ -397,7 +466,11 @@ while id > 0:
 			print(colored("\033[1m= POINTS TABLE =\033[0m", "red"))
 			print(colored("\033[1m"+msg+"\033[0m", "red"))
 			print("#######################################\n")
+
+		#elif c.typee == "REVEAL":
+	
 		
+
 		elif c.typee == "WON_GAME":
 			print("########################END#########################")
 			print(msg)

@@ -13,6 +13,9 @@ class Player:
         self.socket = port
         self.name = ""
         self.msg = [] # array com as mensagens todas
+        self.pubKey = None
+        self.aux = None
+        self.bitcom = []
         
     # mostrar os pontos de cada jogador
     def points(self):

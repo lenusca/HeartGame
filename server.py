@@ -2,6 +2,7 @@ import socket, select, json
 from Player import *
 from Game import *
 from security.cc import *
+from security.security import *
 import time
 import ast
 import base64 
@@ -29,6 +30,7 @@ class Server:
 		self.startingPlayer = 0
 		self.PlayToAssist = ""
 		self.count = 0
+		self.packs = []
 
 	def start(self):
 		self.serversocket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
@@ -43,11 +45,37 @@ class Server:
 		if player.inTable == 0:
 			print("Player nº " + str(player.id) + " " + str(msg))
 		
-		if type(msg) is list:
-			aux = msg
-			msg = ' '.join(map(str, aux)) 
-		pack = 	{	"header": "server_" + str(player.id),"TYPE":typee,
-					"payload": msg}
+		if(typee == "REQUEST_PLAY"):
+			keys = [] 
+			signData = []
+			names = []
+			pos_cc = "None"
+			for players in self.clients2:
+				if(players.id == player.id):
+					keys.append("0")
+					signData.append("0")
+					names.append("0")
+					if player.CC == True:
+						pos_cc = player.id
+				else:
+					keys.append(base64.b64encode(players.pubKey).decode("utf-8") )
+					signData.append(base64.b64encode(players.aux).decode('utf-8'))
+					names.append(players.name)
+					if players.CC==True:
+						pos_cc = players.id
+			if type(msg) is list:
+				aux = msg
+				msg = ' '.join(map(str, aux)) 
+			
+			pack = 	{"header": "server_" + str(player.id),"TYPE":typee,"KEYS":str(keys),"signData":str(signData),"names":str(names),
+					"payload": msg, "CCpos": pos_cc}
+
+		else:
+			if type(msg) is list:
+				aux = msg
+				msg = ' '.join(map(str, aux)) 
+			pack = 	{	"header": "server_" + str(player.id),"TYPE":typee,
+						"payload": msg}
 		player.socket.send(json.dumps(pack).encode())
 
 	def sendDeck(self,player,deck):
@@ -96,7 +124,8 @@ class Server:
 							talking=player
 							if "TYPE" in pack:
 								self.typee = pack["TYPE"]
-
+							if "BitCommit" in pack:
+								self.packs = pack
 					if "server" in pack["header"]:
 						msg = pack["payload"]
 						self.saveMsg(talking,msg)
@@ -152,25 +181,35 @@ class Server:
 			# AUTENTICAÇÃO COM CC
 			if "TYPE" in pack:
 				if pack["TYPE"] == "CC":
-					if CitizenCard().verifyChainOfTrust(base64.b64decode(pack["CERT"].encode('utf-8'))) or CitizenCard().verifySign(base64.b64decode(pack["CERT"].encode('utf-8')), pack["payload"], base64.b64decode(pack["SIGNED"].encode('utf-8'))):
+					if CitizenCard().verifyChainOfTrust(base64.b64decode(pack["CERT"].encode('utf-8'))) and CitizenCard().verifySign(base64.b64decode(pack["CERT"].encode('utf-8')), pack["payload"], base64.b64decode(pack["SIGNED"].encode('utf-8'))):
 						print("Chain of trust verified")
 						player = self.addPlayer(clientsocket)
 						player.CC = True
+						player.pubKey = base64.b64decode(pack["CERT"].encode('utf-8'))
 						self.sendPlainMsg(player,"Welcome! You're nº: " + str(player.id))
 						msg = pack["payload"] 		
 						player.name = msg
+						player.aux = base64.b64decode(pack["SIGNED"].encode('utf-8'))
 						print(player.CC)
 						print("ID:" + str(player.id) + " Name: " + player.name + " joined the game")
 					
 					
 			else:
-				player = self.addPlayer(clientsocket)
-				# Send the welcome message and inform the id
-				self.sendPlainMsg(player,"Welcome! You're nº: " + str(player.id))
-				msg = pack["payload"] 		
-				player.name = msg
-				print(player.CC)
-				print("ID:" + str(player.id) + " Name: " + player.name + " joined the game")
+				# print(base64.b64decode(pack["CERT"].encode("utf-8")))
+				pubk = Security().getpubKey(base64.b64decode(pack["CERT"].encode("utf-8")))
+				# print("Assinatura no server : ",base64.b64decode(pack["SIGNED"].encode("utf-8")))
+				if(Security().verifySign(pack["payload"], pack["SIGNED"], pubk)):
+					print("ASSINATURA VALIDA")
+					player = self.addPlayer(clientsocket)
+					# Send the welcome message and inform the id
+					self.sendPlainMsg(player,"Welcome! You're nº: " + str(player.id))
+					msg = pack["payload"] 		
+					player.name = msg
+					player.pubKey = base64.b64decode(pack["CERT"].encode("utf-8"))
+					player.aux = base64.b64decode(pack["SIGNED"].encode("utf-8"))
+					print("ID:" + str(player.id) + " Name: " + player.name + " joined the game")
+				else:
+					print("Não foi possivel verificar a assinatura")
 		else:
 			print("Name: " + data + " tried to join but the table is full")
 			# Send the welcome message and inform the id
@@ -188,13 +227,13 @@ class Server:
 				i.msg.append(m)
 		
 
-	def requestGame(self, player, PlayToAssistgame):
+	def requestGame(self, player, game):
 		self.sendMsg(player, "ACCEPT THE GAME","REQUEST_GAME")
-		time.sleep(2)
+		#time.sleep(2)
 	
 	def requestCard(self, player, deck):
 		self.sendMsg(player, deck,"CARD")
-		time.sleep(2)
+		#time.sleep(2)
 
 	def cleanMsg(self):
 		for client in self.clients2:
@@ -205,6 +244,14 @@ class Server:
 		for i in range(0, len(self.clients2)):
 			msg = msg + self.clients2[i].name + ":" + str(self.clients2[i].points) + "\n"
 		return msg
+	
+	# Confirmar que se jogou as cartas que tinha na mão originalemnte
+	def confirmCommitment(self, R1, B, R2, hand):
+		hash1 = hashlib.sha256()
+		hash1.update(R1)
+		hash1.update(R2)
+		
+
 
 	##########################JOGO##########################
 	def newGame(self):
@@ -251,7 +298,7 @@ class Server:
 		player.points = player.points
 
 		# MUDAR ISTO PARA 100
-		if player.points >= 4:
+		if player.points >= 100:
 			game.state = "EndGame"
 
 		# SE FICAREM SEM CARTAS MUDAR PARA O DISTRIBUIR BARALHO
@@ -285,7 +332,7 @@ class Server:
 							player.msg.pop(0)	
 						else:
 							print("Waiting...")
-							time.sleep(0.5)
+							#time.sleep(0.5)
 							game.state = "waitForResponse"
 		
 		# 4ºestado, manda a mensagem a todos para estes aceitarem com quem qurem jogar uns
@@ -294,7 +341,7 @@ class Server:
 			if game.allAccept() == False:
 				if self.flag2 == False: 
 					for i in game.players_accept:
-						print("Nomes que aceitaram: ",i.name)
+						print("Nomes que aceitaram jogar: ",i.name)
 					op = ""
 					for p in game.players_accept:
 						op = ""
@@ -302,7 +349,7 @@ class Server:
 							if pla.id != p.id:
 								op = op + "\n                 " + pla.name
 						self.sendMsg(p,"List of the players: " + op,"REQUEST_PLAY")
-						time.sleep(0.5)
+						#time.sleep(0.5)
 					self.flag2 = True
 				else:
 					for player in game.players_accept:
@@ -310,7 +357,7 @@ class Server:
 							if("accept to play" in player.msg[0]):
 								game.addAcceptToplayWith(player)
 								player.msg.pop(0)
-								time.sleep(2)
+								#time.sleep(2)
 							else:
 								print("Waiting...")
 								game.state = "PlayOpponents"
@@ -365,8 +412,9 @@ class Server:
 						break
 				else:  
 					print("Waiting...")
-					time.sleep(0.5)
+					#time.sleep(0.5)
 					game.state = "waitforCards"
+					
 			
 		# 9ºestado, decifrar as cartas de cada um tem na mão
 		elif game.state == "askKey":
@@ -377,17 +425,43 @@ class Server:
 
 		# 10ºestado, receber key
 		elif game.state == "getKey":
+			print(self.packs)
 			for player in self.clients2:
 				if(len(player.msg) > 0 ):
 					if player.id == self.givingDeckTo + 1:
-						self.keys.append(player.msg[0])
-						player.msg.pop(0)
-						self.givingDeckTo = self.givingDeckTo - 1
-						game.state = "askKey"
-						break
+						if player.CC == True:
+							if(CitizenCard().verifySign(base64.b64decode(self.packs["CERT"].encode('utf-8')), self.packs["BitCommit"], base64.b64decode(self.packs["SIGNED"].encode('utf-8')))):
+								print("Bit commit foi aceite")
+								player.bitcom = ast.literal_eval(self.packs["BitCommit"])
+								self.keys.append(player.msg[0])
+								player.msg.pop(0)
+								self.givingDeckTo = self.givingDeckTo - 1
+								game.state = "askKey"
+								break
+							else:
+								print("Bit commit não foi aceite")
+						else:
+							#print("verify sign")
+							pubk = Security().getpubKey(base64.b64decode(self.packs["CERT"].encode("utf-8")))
+							if(Security().verifySign(self.packs["BitCommit"], self.packs["SIGNED"], pubk)):
+								print("Bit commit foi aceite")
+								player.bitcom = ast.literal_eval(self.packs["BitCommit"])
+								self.keys.append(player.msg[0])
+								player.msg.pop(0)
+								self.givingDeckTo = self.givingDeckTo - 1
+								game.state = "askKey"
+								break
+							else:
+								print("Bit commit não foi aceite")
+				
+						# self.keys.append(player.msg[0])
+						# player.msg.pop(0)
+						# self.givingDeckTo = self.givingDeckTo - 1
+						# game.state = "askKey"
+						# break
 				else:
 					print("Waiting...")
-					time.sleep(0.5)
+					#time.sleep(0.01)
 
 			if len(self.keys) == 4:
 				self.givingDeckTo = 0
@@ -410,8 +484,7 @@ class Server:
 						break
 				else:
 					print("Waiting...")
-					time.sleep(0.5)
-			print("givindeckto:",self.givingDeckTo )
+					#time.sleep(0.5)
 			if self.givingDeckTo == 3:
 				game.state = "START"
 				self.givingDeckTo = 0
@@ -440,19 +513,19 @@ class Server:
 							self.PlayToAssist = "TWO CLUBS"
 							for player in self.clients2:
 								self.sendMsg(player, str(game.cardsPlayed), "RecivePlay")
-							time.sleep(1)
+							time.sleep(0.5)
 							self.sendMsg(self.clients2[self.startingPlayer],self.PlayToAssist,"PLAY")
 							game.state = "waitForPlay"
 						break
 				else:
 					print("Waiting...")
-					time.sleep(0.5)
+					#time.sleep(0.5)
 
 		elif game.state == "PLAY":
 				#print("Eu Jogo: ",self.clients2[self.startingPlayer].name)
 				for player in self.clients2:
 					self.sendMsg(player, str(game.cardsPlayed), "RecivePlay")
-				time.sleep(1)
+				time.sleep(0.5)
 				#print("Starting player",self.startingPlayer)
 				self.sendMsg(self.clients2[self.startingPlayer],self.PlayToAssist,"PLAY")
 				game.state = "waitForPlay"
@@ -464,7 +537,6 @@ class Server:
 						if player.id == self.clients2[self.startingPlayer].id:
 							print(type(player.msg[0]), player.msg[0])
 							game.cardsPlayed[player.id-1]=player.msg[0]
-						
 							#proximo jogador
 							if(self.startingPlayer == 3):
 								self.startingPlayer = 0
@@ -483,7 +555,7 @@ class Server:
 						break
 				else:
 					print("Waiting...")
-					time.sleep(0.5)
+					#time.sleep(0.5)
 
 		#verifica quem  ganhou as cartas e recomeça o jogo 
 		elif game.state == "verifyWhoWin":
