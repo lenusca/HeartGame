@@ -31,6 +31,9 @@ class Server:
 		self.PlayToAssist = ""
 		self.count = 0
 		self.packs = []
+		self.validlendeck = 0
+		self.sec = Security()
+		self.pubKey = self.sec.generateCertServer("Server")["pubKey"]
 
 	def start(self):
 		self.serversocket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
@@ -66,10 +69,13 @@ class Server:
 			if type(msg) is list:
 				aux = msg
 				msg = ' '.join(map(str, aux)) 
-			
+	
 			pack = 	{"header": "server_" + str(player.id),"TYPE":typee,"KEYS":str(keys),"signData":str(signData),"names":str(names),
 					"payload": msg, "CCpos": pos_cc}
 
+		elif typee == "REQUEST_GAME" or typee == "RoundPoints" or typee == "ReceivePlay" or typee == "Askingfor2clubs" or typee ==  "wonround" or typee == "WON_GAME":
+			pack = 	{"header": "server_" + str(player.id),"TYPE":typee,"SIGNED":self.sec.sign(msg),"CERT":base64.b64encode(self.pubKey).decode("utf-8"),
+					"payload": msg }
 		else:
 			if type(msg) is list:
 				aux = msg
@@ -94,7 +100,7 @@ class Server:
 		if player.inTable == 0:
 			print("Player nº " + str(player.id) + " " + str(msg))
 		
-		pack = 	{	"header": "server_" + str(player.id),"TYPE": "KEYS",
+		pack = 	{	"header": "server_" + str(player.id),"TYPE": "KEYS", 
 					"payload": key}
 		player.socket.send(json.dumps(pack).encode())
 
@@ -126,6 +132,8 @@ class Server:
 								self.typee = pack["TYPE"]
 							if "SIGNED" in pack:
 								self.packs = pack
+							if "VALIDLENDECK" in pack:
+								self.validlendeck = int(pack["VALIDLENDECK"])
 					if "server" in pack["header"]:
 						msg = pack["payload"]
 						self.saveMsg(talking,msg)
@@ -172,6 +180,7 @@ class Server:
 					"payload": msg}
 		player.socket.send(json.dumps(pack).encode())
 
+	
 	def newClient(self, client):
 		clientsocket, _ = client.accept()
 		self.inputs.append(clientsocket)
@@ -232,7 +241,17 @@ class Server:
 		#time.sleep(2)
 	
 	def requestCard(self, player, deck):
-		self.sendMsg(player, deck,"CARD")
+		#Verifica se o jogador já está na mesa
+		if player.inTable == 0:
+			print("Player nº " + str(player.id) + " " + str(msg))
+		
+		if type(deck) is list:
+			aux = deck
+			deck = ' '.join(map(str, aux)) 
+		pack = 	{	"header": "server_" + str(player.id),"TYPE": "CARD", "VALIDLENDECK": str(self.validlendeck),
+					"payload": deck}
+		player.socket.send(json.dumps(pack).encode())
+		#self.sendMsg(player, deck,"CARD")
 		#time.sleep(2)
 
 	def cleanMsg(self):
@@ -256,6 +275,7 @@ class Server:
 	##########################JOGO##########################
 	def newGame(self):
 		self.games.append(Game())
+		self.validlendeck = len(self.games[0].deck)
 		for i in range(4):
 			player = self.clients.pop(0)
 			player.inTable = len(self.games)
@@ -304,10 +324,12 @@ class Server:
 		# SE FICAREM SEM CARTAS MUDAR PARA O DISTRIBUIR BARALHO
 		if self.count == 13:
 			new_deck = Game().deck
+			self.validlendeck = len(new_deck)
 			game.deck = new_deck
 			print(game.deck)
 			self.keys = []
-			game.state = "giveDeck"		
+			self.startingPlayer = 0
+			game.state = "BitComVerify"		
 
 	
 	def gameManage(self, game):
@@ -319,6 +341,7 @@ class Server:
 		elif game.state == "invite":
 			for player in game.players:
 				self.requestGame(player, game)
+				
 				#proximo estado
 			game.state = "waitForResponse"
 		
@@ -390,6 +413,7 @@ class Server:
 		elif game.state == "giveCards":
 			#random player 
 			#self.givingDeckTo = random.choice(self.clients2)
+			#time.sleep(0.01)
 			self.requestCard(self.clients2[self.givingDeckTo], str(game.deck))
 			game.state = "waitforCards"
 
@@ -398,18 +422,21 @@ class Server:
 			for player in self.clients2:
 				if(len(player.msg) > 0 ):
 					#if(player.id == self.givingDeckTo.id):
-					if player.id == self.clients2[self.givingDeckTo].id:	
-						self.givingDeckTo = self.givingDeckTo + 1
-						if self.givingDeckTo > 3:
-							self.givingDeckTo = 0
-						
-						game.deck = ast.literal_eval(player.msg[0])
-						player.msg.pop(0)
-						game.state = "giveCards"
-						if len(game.deck) == 0:
-							self.givingDeckTo = 3
+					if player.id == self.clients2[self.givingDeckTo].id:
+						if "end distribuition" in player.msg[0]:
+							player.msg.pop(0)	
+							self.givingDeckTo = 3 #para pedir as chaves para decifrar o baralho
 							game.state = "askKey"
-						break
+							break
+						else:
+							self.givingDeckTo = self.givingDeckTo + 1
+							if self.givingDeckTo > 3:
+								self.givingDeckTo = 0
+							game.deck = ast.literal_eval(player.msg[0])
+							player.msg.pop(0)
+							#self.validlendeck = recebermsg
+							game.state = "giveCards"
+							break
 				else:  
 					print("Waiting...")
 					#time.sleep(0.5)
@@ -524,7 +551,7 @@ class Server:
 							else:
 								pubk = Security().getpubKey(base64.b64decode(self.packs["CERT"].encode("utf-8")))
 								if Security().verifySign(self.packs["payload"], self.packs["SIGNED"], pubk):
-									print("Card was accept#################################################")
+									print("Card was accept")
 									self.cleanMsg()
 									game.cardsPlayed[player.id-1] = ("TWO CLUBS")
 									self.startingPlayer = player.id - 1
@@ -622,6 +649,13 @@ class Server:
 			for player in self.clients2:
 				self.sendMsg(player,tablePoints,"RoundPoints")
 		
+		elif game.state == "BitComVerify":
+			self.sendMsg(self.clients2[self.startingPlayer], )
+			game.state = "giveDeck"	
+			pass
+
+
+
 		# Quem tem menos pontos ganha
 		elif game.state == "EndGame":
 			win_player = self.clients2[0]
@@ -630,8 +664,11 @@ class Server:
 				if(player.points < win_player.points):
 					win_player = player
 			print("Winnner: ",win_player.name) #mandar depois os resultadoss todos e a tabela de pontos
-			self.sendMsg(win_player,"YOU WON THE GAME","WON_GAME")
-			game.state = "inactive"
+			self.sendMsgSigned(win_player,"Winner: "+ win_player.name + " with id " + str(win_player.id),"WON_GAME")
+			game.state = "sendResult"
+		
+		elif game.state == "":
+			recibo = "Winner"
 
 s = Server()
 s.start()

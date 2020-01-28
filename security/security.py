@@ -89,7 +89,6 @@ class Security:
     # chaves e certificado servidor com ECCipher e em comentario a RSA
     def generateCertServer(self, client_id):
         password = "kikoeluna"
-        # SUBSTITUIR COM O DIFFIE HEL... e ECC
         #self.privKey = rsa.generate_private_key(65537, 2048, default_backend())
         self.privKey = ec.generate_private_key(ec.SECP384R1(), default_backend())
 
@@ -178,16 +177,6 @@ class Security:
         except InvalidSignature:
             return False
 
-# s = Security()
-
-# keys = s.generateCertClient(0)
-
-# pubk = s.getpubKey(keys["pubKey"])
-
-
-# cert = s.generateCert(pubk)
-
-# print(cert)
 
 
 

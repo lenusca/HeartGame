@@ -3,6 +3,7 @@ from termcolor import colored
 from security.security import *
 from security.cc import *
 import random
+from random import randint
 import ast
 import sys
 import secrets
@@ -35,6 +36,8 @@ class Client:
 		self.verifyCheat = False
 		self.allverify = ""
 		self.pubKey = "" 
+		self.validLenDeck = 0
+		self.ServerVerify = False
 	
 
 	def connect(self):
@@ -63,7 +66,7 @@ class Client:
 		if type(deck) is list:
 			aux = deck
 			deck = ' '.join(map(str, aux)) 
-		pack = 	{	"header": str(id)+'_'+receiver,"TYPE": "DECK",
+		pack = 	{	"header": str(id)+'_'+receiver,"TYPE": "DECK", "VALIDLENDECK": str(self.validLenDeck),
 					"payload": deck}
 		self.serversocket.send(json.dumps(pack).encode())
 	
@@ -88,7 +91,7 @@ class Client:
 		while "" in arr:
 			arr.remove("")
 		return arr 
-
+	
 	def getMsg(self):
 		data = self.serversocket.recv(self.BUF_SIZE).decode()
 		pack = json.loads(data)
@@ -96,6 +99,11 @@ class Client:
 			self.typee = pack["TYPE"]
 			if(pack["TYPE"] == "REQUEST_PLAY"):
 				self.allverify = self.verifyClients(pack)
+		if "VALIDLENDECK" in pack:
+			self.validLenDeck = int(pack["VALIDLENDECK"])
+		if "CERT" in pack:
+			self.verifyautServer(pack["SIGNED"], pack["payload"], pack["CERT"])
+			if ""
 		msg = pack["payload"]
 		if type(msg) is str:
 			arr = self.splitMsgs(msg)
@@ -165,6 +173,7 @@ class Client:
 					"payload": message}
 		self.serversocket.send(json.dumps(pack).encode())
 
+
 	# Identificar-se ao server
 	def join(self):
 		while 1:
@@ -206,6 +215,11 @@ class Client:
 				return self.id
 
 	#######################SEGURANÇA#########################
+	# Verificar assinaturas do server
+	def verifyautServer(self, Signature, original,cert):
+		pub = Security().getpubKey(base64.b64decode(cert.encode('utf-8')))
+		self.ServerVerify = Security().verifySign(original, Signature, pub) 
+
 	# Criar chave secreta
 	def generate_key(self, min, max):
 		return secrets.token_bytes(random.randint(min, max))
@@ -224,7 +238,8 @@ class Client:
 		new_deck =[]
 		random.shuffle(deck_cipher) 
 		for i in range(0, len(deck_cipher)):
-			new_deck.append(deck_cipher[i]) 
+			new_deck.append(deck_cipher[i])
+		self.validLenDeck = len(deck) 
 		return new_deck
 	
 	# Enviar baralho para o servidor (default server)
@@ -232,11 +247,14 @@ class Client:
 		sendPlainMsg(deck)
 
 	# Tirar uma carta e enviar ao servidor	
-	def getCard(self, deck):
+	def getCard(self, deck, valid):
 		deck = ast.literal_eval(deck)
 		# print("Deck: ",deck)
 		# print("TYPE Deck: ",type(deck))
-		card = deck.pop(0)
+		index = random.randint(0, valid-1)
+		card = deck.pop(index)
+		deck.append("0")
+		self.validLenDeck = self.validLenDeck - 1 
 		self.hand.append(card)
 		return deck
 	
@@ -251,6 +269,7 @@ class Client:
 		for c in self.hand:
 			hash1.update(bytes(c, 'utf-8'))
 		hexa = hash1.hexdigest()
+		#print("HASH: ", hexa)
 		#print('The bit commitment of %s is %s'%(self.id, hexa))
 		self.commit = [R1,R2,hexa] 
 
@@ -283,7 +302,6 @@ class Client:
 						count = count + 1
 		else:
 			for i in range(0,len(keys)):
-				print(pack["CCpos"])
 				if(keys[i]!="0" and i != int(pack["CCpos"])-1):
 					if(Security().verifySign(names[i],signData[i],Security().getpubKey(base64.b64decode(keys[i].encode("utf-8"))))): 
 						count = count + 1
@@ -296,8 +314,6 @@ class Client:
 		else:
 			return False
 
-
-
 	#######################JOGO#########################
 	def getValueNaipe(self, last_card):
 		return last_card.split()
@@ -307,7 +323,25 @@ class Client:
 			for c in self.hand:
 				if card == c:
 					print("Someone cheated")
+					#self.sendMsg("")
 					self.verifyCheat = True
+	
+	def swapCard(self, deck, validCards):
+		if validCards < len(self.hand):
+			numcards = random.randint(0, validCards-1)
+		else:
+			numcards = random.randint(0, len(self.hand)-1)
+		deck = ast.literal_eval(deck)
+		for i in range(0,numcards):
+			indexcard = random.randint(0, validCards-1)
+			indexmycard = random.randint(0, len(self.hand)-1)
+			# guardar cartas
+			card = deck[indexcard]
+			mycard = self.hand[indexmycard]
+			# trocar as cartas
+			deck[indexcard] = mycard
+			self.hand[indexmycard] = card
+		return deck
 
 	def playCard(self, last_card):
 		possible_card = []
@@ -372,15 +406,18 @@ while id > 0:
 	if type(msg) is not int:
 		#print(msg)
 		if c.typee == "REQUEST_GAME":
-			print(colored("\n\033[1m" + c.name+"\033[0m", "red"))
-			print("Do you accept to play the game ")
-			
-			op = input("Y->Yes || N->No          \n")
-			if str(op) == "Y" or str(op) == "y":
-				message = "I " + c.name + " with ID " + str(id) + " accept to play the game."
-				c.sendMsg(message)
-			if str(op) == "N" or str(op) == "n":
-				c.sendMsg("NO")
+			if c.ServerVerify == True:
+				print(colored("\n\033[1m" + c.name+"\033[0m", "red"))
+				print("Do you accept to play the game ")
+				
+				op = input("Y->Yes || N->No          \n")
+				if str(op) == "Y" or str(op) == "y":
+					message = "I " + c.name + " with ID " + str(id) + " accept to play the game."
+					c.sendMsg(message)
+				if str(op) == "N" or str(op) == "n":
+					c.sendMsg("NO")
+			else:
+				print("Server not autheticated")
 
 		elif c.typee == "REQUEST_PLAY":
 			if(c.allverify):
@@ -405,17 +442,38 @@ while id > 0:
 			c.sendDeck(str(deck))
 		
 		# recebe e tira uma carta, e depois envia para o servidor
-		elif c.typee == "CARD":
-			print(colored("\033[1m= GET ONE CARD = \033[0m", "red"))
-			if(len(c.hand)<13):
-				deck = c.getCard(msg)
-				c.sendDeck(str(deck))
+		elif c.typee == "CARD":		
+			if c.validLenDeck != 0:
+				percentagem = randint(0, 100)
+				if percentagem <= 5:
+					if(len(c.hand)<13):
+						deck = c.getCard(msg, c.validLenDeck)
+						print(colored("\033[1m= GET ONE CARD = \033[0m", "red"))
+						c.sendDeck(str(deck))
+					else:
+						c.sendDeck(str(msg))	
+				if percentagem > 5:
+					if percentagem > 50:
+						print(colored("\033[1m= PASS DECK = \033[0m", "red"))
+						c.sendDeck(str(msg))
+					elif len(c.hand) != 0: 
+						if percentagem <= 50:
+							print(colored("\033[1m= SWAP CARD = \033[0m", "red"))
+							print(c.validLenDeck)
+							deck = c.swapCard(msg, c.validLenDeck)
+							c.sendDeck(str(deck))
+					else: 
+						print(colored("\033[1m= PASS DECK = \033[0m", "red"))
+						c.sendDeck(str(msg))
+						
 			else:
-				c.sendDeck(str(msg))
+				c.sendMsg("end distribuition")
+				print("envio o fim da dist")
+			
 		
 		# recebe mensagem do servidor a pedir para enviar a key e envia
 		elif c.typee == "REQUEST_KEY":
-			print("MINHA CHAVE: ", c.key)
+			#print("MINHA CHAVE: ", c.key)
 			c.commitment()
 			lista = [c.commit[0], c.commit[1]]
 			if c.cc != None:
@@ -436,23 +494,26 @@ while id > 0:
 			c.sendMsg("OK")
 			c.keys = []
 	
-	
 		elif c.typee == "Askingfor2clubs":
-			if "TWO CLUBS" in c.hand:
-				c.hand.remove("TWO CLUBS")
-				# ASSINAR COM ECC
-				if c.cc == None:
-					c.sendMsgSigned2("TWO CLUBS", base64.b64encode(c.pubKey).decode("utf-8"))
-				
-				# ASSINAR COM CC
-				else:
-					c.sendMsgSigned2("TWO CLUBS", base64.b64encode(c.cc.getCerts()).decode("utf-8"))
-				print("EU TENHO ", c.name)
+			if c.ServerVerify == True:
+				if "TWO CLUBS" in c.hand:
+					c.hand.remove("TWO CLUBS")
+					# ASSINAR COM ECC
+					if c.cc == None:
+						c.sendMsgSigned2("TWO CLUBS", base64.b64encode(c.pubKey).decode("utf-8"))
+					# ASSINAR COM CC
+					else:
+						c.sendMsgSigned2("TWO CLUBS", base64.b64encode(c.cc.getCerts()).decode("utf-8"))
+					print("EU TENHO ", c.name)
+			else:
+				print("Server not autheticated")
 		
 		# vê a jogada toda, aqui vai ser a verificação da batota
 		elif c.typee == "RecivePlay":
-			print(msg)
-		
+			if c.ServerVerify == True:
+				print(msg)
+			else:
+				print("Server not autheticated")
 		# ASSINAR AQUI
 		elif c.typee =="PLAY":
 			print("pronto a jogar")
@@ -469,21 +530,31 @@ while id > 0:
 				c.hand.remove(card)
 			
 		elif c.typee == "wonround":
-			print(msg)
+			if c.ServerVerify == True:
+				print(msg)
+			else:
+				print("Server not autheticated")
 			
 		elif c.typee == "RoundPoints":
-			print("\n#######################################")
-			print(colored("\033[1m= POINTS TABLE =\033[0m", "red"))
-			print(colored("\033[1m"+msg+"\033[0m", "red"))
-			print("#######################################\n")
+			if c.ServerVerify == True:
+				print("\n#######################################")
+				print(colored("\033[1m= POINTS TABLE =\033[0m", "red"))
+				print(colored("\033[1m"+msg+"\033[0m", "red"))
+				print("#######################################\n")
+			else:
+				print("Server not autheticated")
 
 		#elif c.typee == "REVEAL":
 	
-		
-
+	
 		elif c.typee == "WON_GAME":
-			print("########################END#########################")
-			print(msg)
+			if c.ServerVerify == True:
+				print("########################END#########################")
+				print(msg)
+				c.sendMsgSigned2(msg, base64.b64encode(c.pubKey).decode("utf-8"))
+			else:
+				print("Server not autheticated")
+	
 		
 			
 serversocket.close()
