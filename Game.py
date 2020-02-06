@@ -6,7 +6,6 @@ value = ['TWO ', 'THREE ', 'FOUR ', 'FIVE ', 'SIX ', 'SEVEN ', 'EIGHT ', 'NINE '
 
 class Game:
     def __init__(self):
-       
         self.deck = list(''.join(card) for card in itertools.product(value,suit))
         self.players = []
         self.player_index = 0
@@ -19,6 +18,8 @@ class Game:
         # TROCAR DEPOIS self.cardsPlayed = dict()
         self.cardsPlayed = [None for i in range(4)]
         self.points = [None for i in range(4)]
+        self.id = 0
+        self.winner = None
 
     # adicionar os jogadores ao jogo
     def set_players(self, player):
@@ -49,7 +50,8 @@ class Game:
     # 3º estado
     def allAccept(self):
         if len(self.players_accept_with) == 4:
-            self.state = "giveDeck"
+            #self.state = "changediffiekeys"
+            self.state = "giveDeck" # mudar para changekeys
             print("Todos aceitaram")
             return True
         return False

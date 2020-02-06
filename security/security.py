@@ -14,15 +14,29 @@ from cryptography import x509
 from OpenSSL.crypto import *
 from cryptography.x509.oid import *
 import datetime
+from cryptography.hazmat.backends import default_backend
+from cryptography.hazmat.primitives.asymmetric import ec
+from cryptography.hazmat.primitives.kdf.hkdf import HKDF
+from cryptography.hazmat.primitives.ciphers import Cipher, algorithms, modes
+from secrets import token_bytes
 class Security:
     def __init__(self):
         self.key = None
         self.privKey = None
         self.pubKey = None
+        #initDH
+        self.diffieHellman =  ec.generate_private_key(ec.SECP384R1(), default_backend())
+        self.pubkeyDH = self.diffieHellman.public_key().public_bytes(serialization.Encoding.PEM, serialization.PublicFormat.SubjectPublicKeyInfo)
+        #self.IV = token_bytes(16)
+        self.IV = b'|A\xc6\xb1\x84\x06\x9d\xf9:Z\xd72.\xc6\x93?'
+        self.shared_key = []
 
     def generate_secret_key(self, key):
         self.key = base64.b64decode(key)
-    
+
+    def gensharedKey(self,public_key):
+        self.shared_key.append(self.diffieHellman.exchange(ec.ECDH(), public_key))
+        
     # Chave simetrica AES e modo OFB
     def encrypt(self, originalText):
         algorithm = algorithms.AES
@@ -61,7 +75,7 @@ class Security:
     def generateCertClient(self, client_id):
         password = "kikoeluna"
         #self.privKey = rsa.generate_private_key(65537, 2048, default_backend())
-        self.privKey = ec.generate_private_key(ec.SECP384R1(), default_backend())
+        self.privKey = ec.generate_private_key(ec.SECP521R1(), default_backend())
 
         self.pubKey = self.privKey.public_key()
 
@@ -117,6 +131,10 @@ class Security:
     def getpubKey(self, key):
         self.pubKey = serialization.load_pem_public_key(key, default_backend())
         return self.pubKey
+
+    def getpubDHKey(self, key):
+        pubKey = serialization.load_pem_public_key(key, default_backend())
+        return pubKey
 
     def getprivKey(self, key):
         key = base64.b64decode(key.encode("utf-8"))
@@ -176,6 +194,39 @@ class Security:
             return True
         except InvalidSignature:
             return False
+    
+    #encriptar a mensagem com DH
+    def encrypt_DH(self, public_key, text,shared):
+        derived_key = HKDF(
+            algorithm=hashes.SHA256(),
+            length=32,
+            salt=None,
+            info=None,
+            backend=default_backend()
+        ).derive(shared)
+        aes_cipher = Cipher(algorithms.AES(derived_key), modes.CBC(self.IV), backend=default_backend())
+        encrypt_var = aes_cipher.encryptor()
+
+        padder = padding.PKCS7(128).padder()
+        padder_data = padder.update(text.encode()) + padder.finalize()
+        return encrypt_var.update(padder_data) + encrypt_var.finalize()
+
+    #decifrar a mensagem com DH
+    def decrypt_DH(self, public_key, text,shared):
+        derived_key = HKDF(
+            algorithm=hashes.SHA256(),
+            length=32,
+            salt=None,
+            info=None,
+            backend=default_backend()
+        ).derive(shared)
+        aes_cipher = Cipher(algorithms.AES(derived_key), modes.CBC(self.IV), backend=default_backend())
+        decryptor = aes_cipher.decryptor()
+        decrypt_data = decryptor.update(text) + decryptor.finalize()
+
+        unpadder = padding.PKCS7(128).unpadder()
+        return unpadder.update(decrypt_data) + unpadder.finalize()
+
 
 
 

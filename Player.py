@@ -16,6 +16,7 @@ class Player:
         self.pubKey = None
         self.aux = None
         self.bitcom = []
+        self.bitcom2 = []
         
     # mostrar os pontos de cada jogador
     def points(self):
